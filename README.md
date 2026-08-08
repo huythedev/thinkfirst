@@ -96,58 +96,101 @@ session 13. To generate your own from the running app, follow [Demo](#demo).
 
 ```mermaid
 flowchart TB
-      subgraph Browser
-            UI[Next.js App Router<br/>student and teacher surfaces]
-      end
+    subgraph Browser
+        UI[Next.js App Router<br/>student and teacher surfaces]
+    end
 
-      subgraph Server["Next.js server route handlers"]
-            AUTH[Session cookie exchange<br/>and server-side role gate]
-            CHAT[POST /api/session/chat]
-            TEACH[GET /api/teacher/*]
-            IMG[POST /api/problem-images]
-            RL[Rate limiter<br/>Firestore-backed]
-      end
+    subgraph Server["Next.js server route handlers"]
+        AUTH[Session cookie exchange]
+        GUARD[Server-side auth<br/>role and ownership gate]
+        CHAT[POST /api/session/chat]
+        TEACH[GET /api/teacher/*]
+        IMG[POST /api/problem-images]
+        RL[Rate limiter<br/>Firestore-backed]
+    end
 
-      subgraph Policy["Deterministic layer, no model"]
-            RESOLVE[Policy input resolver<br/>assignment to classroom to profile]
-            ENGINE[Policy engine<br/>section 18 rules R1 to R9]
-            ENFORCE[Plan enforcement<br/>post-generation]
-            SAFE[Safety composer<br/>constants only]
-            MATH[Mathematical validator<br/>mathjs, allowlisted]
-      end
+    subgraph Policy["Deterministic layer, no model"]
+        RESOLVE[Trusted policy input resolver<br/>session → assignment → classroom → profile]
+        ENGINE[Policy engine<br/>section 18 rules R1 to R9]
+        VALID[Structured output validation]
+        MATH[Mathematical validator<br/>mathjs, allowlisted]
+        ENFORCE[Plan enforcement<br/>disclosure and policy checks]
+        SAFE[Safety composer<br/>constants only]
+    end
 
-      subgraph Model["Gemini via lib/ai/model-client.ts"]
-            CLS[Intent classifier]
-            TUT[Tutor]
-            EVAL[Attempt evaluator]
-            XFER[Transfer generator]
-            OCR[Image extraction]
-      end
+    subgraph Model["Gemini via lib/ai/model-client.ts"]
+        CLS[Intent classifier]
+        EVAL[Attempt evaluator]
+        TUT[Tutor]
+        XFER[Transfer generator]
+        OCR[Image extraction]
+    end
 
-      subgraph Data["Firebase"]
-            FS[(Firestore<br/>13 collections)]
-            ST[(Storage<br/>problem images)]
-            FA[Firebase Auth]
-      end
+    subgraph Data["Firebase"]
+        FS[(Firestore<br/>13 collections)]
+        ST[(Storage<br/>problem images)]
+        FA[Firebase Auth]
+    end
 
-      UI -->|message and sessionId only| CHAT
-      UI --> AUTH
-      AUTH --> FA
-      CHAT --> RL
-      CHAT --> RESOLVE
-      RESOLVE --> FS
-      RESOLVE --> ENGINE
-      ENGINE -->|safety turn| SAFE
-      ENGINE -->|ordinary turn| TUT
-      CHAT --> CLS
-      TUT --> ENFORCE
-      ENFORCE -->|server-authored turn| FS
-      CHAT --> EVAL
-      EVAL --> MATH
-      EVAL --> XFER
-      IMG --> OCR
-      IMG --> ST
-      TEACH -->|Admin SDK, ownership checked| FS
+    %% Authentication
+    UI -->|sign in| FA
+    FA -->|Firebase ID token| AUTH
+    AUTH -->|HttpOnly session cookie| UI
+
+    %% Main tutoring request
+    UI -->|message + sessionId only| CHAT
+    CHAT --> GUARD
+    GUARD --> RL
+    RL --> RESOLVE
+
+    %% Trusted server-side state
+    RESOLVE <--> FS
+
+    %% Analysis signals
+    RESOLVE --> CLS
+    RESOLVE --> EVAL
+
+    CLS --> ENGINE
+    EVAL --> ENGINE
+
+    %% Deterministic policy chooses what may happen
+    ENGINE -->|safety turn| SAFE
+    ENGINE -->|ordinary tutoring turn| TUT
+    ENGINE -->|transfer due| XFER
+
+    %% Safety path
+    SAFE --> ENFORCE
+
+    %% Tutor generation path
+    TUT --> VALID
+    VALID --> MATH
+    MATH --> ENFORCE
+
+    %% Transfer generation path
+    XFER --> VALID
+
+    %% Server-authoritative persistence
+    ENFORCE -->|server-authored turn and evidence| FS
+
+    %% Response to client
+    ENFORCE -->|validated structured response| CHAT
+    CHAT --> UI
+
+    %% Teacher API
+    UI --> TEACH
+    TEACH --> GUARD
+    TEACH -->|Admin SDK after role and ownership checks| FS
+    TEACH --> UI
+
+    %% Problem image flow
+    UI --> IMG
+    IMG --> GUARD
+    IMG --> RL
+    IMG -->|validate type, size, ownership| ST
+    IMG --> OCR
+    OCR --> VALID
+    VALID -->|extracted text + confidence| IMG
+    IMG -->|student confirmation required| UI
 ```
 
 Two things that diagram exists to make obvious:
