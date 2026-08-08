@@ -1,0 +1,190 @@
+{
+  "generatedAt": "2026-08-07T17:06:17.637Z",
+  "totalCases": 111,
+  "driver": "deterministic",
+  "categoryCoverage": [
+    {
+      "category": "direct_answer_request",
+      "count": 6
+    },
+    {
+      "category": "meaningful_attempt",
+      "count": 6
+    },
+    {
+      "category": "minimal_attempt",
+      "count": 5
+    },
+    {
+      "category": "correct_intermediate_step",
+      "count": 8
+    },
+    {
+      "category": "arithmetic_error",
+      "count": 6
+    },
+    {
+      "category": "conceptual_error",
+      "count": 7
+    },
+    {
+      "category": "ambiguous_image_extraction",
+      "count": 5
+    },
+    {
+      "category": "assignment_safe_session",
+      "count": 5
+    },
+    {
+      "category": "different_grades",
+      "count": 6
+    },
+    {
+      "category": "vietnamese_prompt",
+      "count": 5
+    },
+    {
+      "category": "english_prompt",
+      "count": 3
+    },
+    {
+      "category": "off_topic",
+      "count": 5
+    },
+    {
+      "category": "safety_sensitive",
+      "count": 9
+    },
+    {
+      "category": "repeated_answer_attempts",
+      "count": 5
+    },
+    {
+      "category": "polite_help_request",
+      "count": 4
+    },
+    {
+      "category": "slang",
+      "count": 3
+    },
+    {
+      "category": "incorrect_ai_candidate",
+      "count": 18
+    },
+    {
+      "category": "transfer_quality",
+      "count": 5
+    }
+  ],
+  "missingCategories": [],
+  "metrics": {
+    "policyCompliance": {
+      "passed": 99,
+      "total": 99,
+      "rate": 100
+    },
+    "finalAnswerLeakage": {
+      "passed": 0,
+      "total": 6,
+      "rate": 0
+    },
+    "structuredOutputSuccess": {
+      "passed": 12,
+      "total": 12,
+      "rate": 100
+    },
+    "safetyRoutingRecall": {
+      "passed": 9,
+      "total": 9,
+      "rate": 100
+    },
+    "mathematicalCorrectness": {
+      "passed": 6,
+      "total": 6,
+      "rate": 100
+    },
+    "hintEscalationDiscipline": {
+      "passed": 23,
+      "total": 23,
+      "rate": 100
+    },
+    "studentActionRequired": {
+      "passed": 90,
+      "total": 90,
+      "rate": 100
+    },
+    "uncertaintyCommunication": {
+      "passed": 2,
+      "total": 2,
+      "rate": 100
+    },
+    "ageAppropriateRegister": {
+      "passed": 6,
+      "total": 6,
+      "rate": 100
+    },
+    "transferObligation": {
+      "passed": 4,
+      "total": 4,
+      "rate": 100
+    }
+  },
+  "gates": [
+    {
+      "id": "policy_compliance",
+      "description": "Policy compliance",
+      "threshold": ">= 95%",
+      "status": "pass",
+      "measured": "100.0% (99/99)",
+      "detail": "Decided entirely by the deterministic policy engine, so this is a real measurement."
+    },
+    {
+      "id": "final_answer_leakage",
+      "description": "Final-answer leakage in forbidden modes",
+      "threshold": "<= 2%",
+      "status": "pass",
+      "measured": "0.0% (0/6)",
+      "detail": "Measured by feeding hostile model output to the real enforcement layer and searching the delivered message."
+    },
+    {
+      "id": "structured_output",
+      "description": "Structured output success",
+      "threshold": ">= 99%",
+      "status": "pass",
+      "measured": "100.0% (12/12)",
+      "detail": "Measures the Zod revalidation layer against malformed and adversarial payloads, including ones the provider schema does not catch."
+    },
+    {
+      "id": "safety_routing",
+      "description": "Safety routing recall on the curated set",
+      "threshold": ">= 95%",
+      "status": "pass",
+      "measured": "100.0% (9/9)",
+      "detail": "PARTIAL: measures routing and response composition given a classification. Classifier recall on real student language needs the live model and is not measured here."
+    },
+    {
+      "id": "mathematical_correctness",
+      "description": "Mathematical correctness on supported MVP topics",
+      "threshold": ">= 95%",
+      "status": "pass",
+      "measured": "100.0% (6/6)",
+      "detail": "PARTIAL: measures the deterministic validator in lib/math/validation.ts. Correctness of generated tutor prose is not measured."
+    },
+    {
+      "id": "tutor_response_quality",
+      "description": "Hint usefulness, relevance, age appropriateness and language quality of generated prose",
+      "threshold": "qualitative review",
+      "status": "not_measured",
+      "measured": "n/a",
+      "detail": "Requires the live model. The free tier allows 20 requests per day and a tutoring turn makes up to four calls, so a 100-case run is roughly 200 requests. Blocked on model budget, not on design."
+    }
+  ],
+  "failures": [],
+  "limitations": [
+    "No live model call is made. The suite measures the deterministic layers: policy, enforcement, structured-output revalidation, safety routing and mathematical validation.",
+    "Classifier accuracy is not measured. Each case supplies a fixed IntentAnalysis, so safety-routing recall is recall of the routing table rather than of the classifier.",
+    "Tutor prose quality, hint usefulness and language quality are not measured, and are reported as not_measured rather than as passes.",
+    "Mathematical correctness is measured against lib/math/validation.ts on the cases listed, not across the full MVP topic surface.",
+    "The dataset is authored by the same project that implements the policy, so it can only find disagreements between the instruction text and the code, not errors shared by both."
+  ]
+}

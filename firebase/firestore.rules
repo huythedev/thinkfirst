@@ -1,0 +1,357 @@
+rules_version = '2';
+
+// ThinkFirst Firestore security rules.
+//
+// This is the ONLY rules file in the repository, and `firebase.json` deploys it.
+// A second copy previously existed at the repository root, was not deployed, and
+// was free to drift away from this one; it has been deleted.
+//
+// Two invariants govern everything below.
+//
+// 1. No collection is readable by "any authenticated user". Every read is scoped
+//    to the owner of the data, the teacher who owns the containing classroom, or
+//    an admin. Membership-scoped collections resolve membership through a
+//    deterministic document id, because rules can look a document up but cannot
+//    run a query.
+// 2. Clients never write trusted scoring, policy or audit fields.
+//
+// Per-collection coverage against section 28 is recorded in
+// docs/SECURITY-RULES-MATRIX.md. The tests that exercise these rules are in
+// tests/rules/firestore-rules.test.ts and run under `npm run test:rules`.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Reads the caller's own user document. A caller without one fails closed,
+    // because rule evaluation errors and Firestore denies on error.
+    function hasRole(role) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    // Membership documents use the deterministic id "<classroomId>__<userId>",
+    // so membership is checkable from a rule with a direct lookup.
+    function membershipPath(classroomId) {
+      return /databases/$(database)/documents/classroomMemberships/$(classroomId + '__' + request.auth.uid);
+    }
+
+    function isActiveMember(classroomId) {
+      return isSignedIn() &&
+        exists(membershipPath(classroomId)) &&
+        get(membershipPath(classroomId)).data.status == 'active';
+    }
+
+    function ownsClassroom(classroomId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/classrooms/$(classroomId)) &&
+        get(/databases/$(database)/documents/classrooms/$(classroomId)).data.teacherId == request.auth.uid;
+    }
+
+    function ownsSession(sessionId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/learningSessions/$(sessionId)) &&
+        get(/databases/$(database)/documents/learningSessions/$(sessionId)).data.studentId == request.auth.uid;
+    }
+
+    // users
+    //
+    // Role is chosen once at onboarding and is immutable from the client after
+    // that. 'admin' is never self-assignable.
+    match /users/{userId} {
+      allow get: if isSelf(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isSelf(userId) &&
+        request.resource.data.id == userId &&
+        request.resource.data.role in ['student', 'teacher'];
+      allow update: if (isSelf(userId) &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['displayName', 'preferredLanguage', 'updatedAt'])) ||
+        isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /studentProfiles/{userId} {
+      allow get: if isSelf(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create, update: if isSelf(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /teacherProfiles/{userId} {
+      allow get: if isSelf(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create, update: if isSelf(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // classrooms
+    //
+    // `list` is evaluated per returned document, so requiring ownership on the
+    // document forces the teacher dashboard query to filter by teacherId and
+    // makes an unfiltered listing fail.
+    match /classrooms/{classroomId} {
+      allow get: if isSignedIn() && (
+        resource.data.teacherId == request.auth.uid ||
+        isActiveMember(classroomId) ||
+        isAdmin());
+      allow list: if isSignedIn() && (
+        resource.data.teacherId == request.auth.uid ||
+        isAdmin());
+      allow create: if hasRole('teacher') &&
+        request.resource.data.teacherId == request.auth.uid;
+      allow update: if isSignedIn() &&
+        resource.data.teacherId == request.auth.uid &&
+        request.resource.data.teacherId == resource.data.teacherId;
+      allow delete: if isSignedIn() && resource.data.teacherId == request.auth.uid;
+    }
+
+    // classroomJoinCodes
+    //
+    // Join-code resolution is server-side. Clients cannot read the digest or
+    // forge a lookup entry; the server creates memberships after verification.
+    match /classroomJoinCodes/{joinCode} {
+      allow read: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /classroomJoinCodeSecrets/{classroomId} {
+      allow read, write: if false;
+    }
+
+    // classroomMemberships
+    //
+    // A student may enroll only themselves, only as a student, and only at the
+    // deterministic id the membership lookups above depend on.
+    match /classroomMemberships/{membershipId} {
+      allow get, list: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        ownsClassroom(resource.data.classroomId) ||
+        isAdmin());
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        membershipId == request.resource.data.classroomId + '__' + request.auth.uid &&
+        request.resource.data.role == 'student' &&
+        request.resource.data.status == 'active' &&
+        exists(/databases/$(database)/documents/classrooms/$(request.resource.data.classroomId));
+      allow update, delete: if isSignedIn() && ownsClassroom(resource.data.classroomId);
+    }
+
+    match /assignments/{assignmentId} {
+      allow get, list: if isSignedIn() && (
+        resource.data.teacherId == request.auth.uid ||
+        isActiveMember(resource.data.classroomId) ||
+        isAdmin());
+      allow create: if hasRole('teacher') &&
+        request.resource.data.teacherId == request.auth.uid &&
+        ownsClassroom(request.resource.data.classroomId);
+      allow update, delete: if isSignedIn() && resource.data.teacherId == request.auth.uid;
+    }
+
+    // assignmentReferences
+    //
+    // Section 12.6 requires an assignment to be able to carry a teacher
+    // reference answer and a rubric. Neither can live on the assignment
+    // document, because every active member of the classroom can read that
+    // document: storing the answer there would publish it to the class.
+    //
+    // So they live here, and no client reads this collection -- not the student,
+    // and not the authoring teacher either. The teacher reaches their own
+    // reference through `/api/teacher/assignments/[assignmentId]`, which
+    // verifies ownership server-side, so the rule does not have to distinguish
+    // a teacher's browser from a student's. Same treatment as
+    // `transferProblems`, and for the same reason: a reference answer is the
+    // answer.
+    match /assignmentReferences/{assignmentId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // learningSessions
+    //
+    // Teacher access is deliberately absent. Teachers previously held a blanket
+    // read over every session in the project. Aggregate classroom analytics is
+    // a server-side concern (phase 6) and will read through a privileged path
+    // that writes auditLogs, not through a client rule.
+    //
+    // problemImages
+    //
+    // Read-scoped to the uploading student so the workspace can show its own
+    // extraction state. Writes are denied outright, including to the owner: the
+    // document carries `extractionConfidence`, which decides whether the tutor
+    // may begin (policy rule R6), and `confirmationStatus`, which decides whether
+    // that block has been lifted. A student who could write either could declare
+    // an unread photo to be a confident, confirmed extraction and skip the
+    // confirmation step section 34 requires. Both are written by
+    // `app/api/problem-images/**` under Admin credentials, which bypass this rule.
+    //
+    // Same class of exploit as the forged `strictness` closed in P0-1 and the
+    // client-writable `studentAttempts` closed in Phase 5.
+    match /problemImages/{imageId} {
+      allow get, list: if isSignedIn() && resource != null && (
+        resource.data.studentId == request.auth.uid ||
+        isAdmin());
+      allow write: if false;
+    }
+
+    match /learningSessions/{sessionId} {
+      // `resource` is null when the document does not exist, and dereferencing
+      // it raises a rules runtime error instead of denying cleanly. Opening a
+      // deleted or mistyped session id is a normal state the workspace handles,
+      // so it is denied rather than turned into an error.
+      allow get, list: if isSignedIn() && resource != null && (
+        resource.data.studentId == request.auth.uid ||
+        isAdmin());
+      allow create: if isSignedIn() &&
+        request.resource.data.studentId == request.auth.uid &&
+        request.resource.data.status == 'active' &&
+        request.resource.data.currentHintLevel == 0;
+      // currentHintLevel is deliberately absent from the writable set. It is the
+      // position on the hint ladder, which is an educational policy decision, so
+      // the tutoring endpoint advances it with Admin credentials. A browser that
+      // could raise it could walk itself to the full-solution rung.
+      //
+      // scratchpad is the student's own working notes: private to them, never
+      // read by policy, and therefore safe to write from the client.
+      allow update: if isSignedIn() &&
+        resource.data.studentId == request.auth.uid &&
+        request.resource.data.studentId == resource.data.studentId &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'scratchpad', 'completedAt', 'updatedAt']) &&
+        request.resource.data.status in ['active', 'completed', 'abandoned'] &&
+        (!('scratchpad' in request.resource.data) ||
+          (request.resource.data.scratchpad is string &&
+           request.resource.data.scratchpad.size() <= 20000));
+      allow delete: if false;
+    }
+
+    // sessionTurns
+    //
+    // studentId is denormalized onto every turn so a transcript read is
+    // ownership-scoped without a lookup per document. Session ownership is still
+    // verified on create, otherwise one student could insert turns into another
+    // student's session.
+    //
+    // A client may author only its own 'student' turns. Assistant and system
+    // turns carry the policy decision -- responsePlan, rationaleCode,
+    // allowedHintLevel, mayRevealFinalAnswer -- which section 41.1 lists among the
+    // values never trusted from a client, so the tutoring endpoint writes them
+    // with Admin credentials, which bypass this rule. A browser that could author
+    // an assistant turn could also write the transcript that policy reads back,
+    // and so manufacture an attempt it never made.
+    match /sessionTurns/{turnId} {
+      allow get, list: if isSignedIn() && (
+        resource.data.studentId == request.auth.uid ||
+        isAdmin());
+      allow create: if isSignedIn() &&
+        request.resource.data.studentId == request.auth.uid &&
+        request.resource.data.actor == 'student' &&
+        ownsSession(request.resource.data.sessionId);
+      allow update, delete: if false;
+    }
+
+    // studentAttempts
+    //
+    // Reads are owner-scoped. Writes are refused outright, including the student's
+    // own, which is a change from the original rule.
+    //
+    // These documents used to be plain records of what the student submitted. They
+    // now carry the evaluator's rubric judgments -- `reasoningRubric`,
+    // `verificationRubric`, `transferOutcome`, `correctnessSource` -- and section 56
+    // computes the Independence Score directly from them. §56.4 forbids a client
+    // writing a score; a client that could author its own rubric would author its
+    // own score by proxy, which is the same exploit class as the forged
+    // `strictness` closed in phase 4. So the tutoring endpoint writes them with
+    // Admin credentials, which bypass this rule.
+    match /studentAttempts/{attemptId} {
+      allow get, list: if isSignedIn() && (
+        resource.data.studentId == request.auth.uid ||
+        isAdmin());
+      allow write: if false;
+    }
+
+    // transferProblems
+    //
+    // Deliberately unreadable by the student who is being asked to solve one.
+    // Every document holds `internalAnswer` and `internalSolutionSteps`, which are
+    // the answer: section 22 requires the verified solution to exist for internal
+    // evaluation and never to be revealed. The problem text reaches the student
+    // through the tutor turn, and the reference answer stays server-side where
+    // §56.2's deterministic check uses it.
+    //
+    // An admin read is allowed for support and audit; a student read is not, and
+    // neither is a teacher read, because the pupil could ask their teacher.
+    match /transferProblems/{problemId} {
+      allow get, list: if isAdmin();
+      allow write: if false;
+    }
+
+    // Trusted learning evidence. Server-written only, per section 39.
+    match /independenceSnapshots/{snapshotId} {
+      allow get, list: if isSignedIn() && (
+        resource.data.studentId == request.auth.uid ||
+        isAdmin());
+      allow write: if false;
+    }
+
+    match /masteryRecords/{recordId} {
+      allow get, list: if isSignedIn() && (
+        resource.data.studentId == request.auth.uid ||
+        isAdmin());
+      allow write: if false;
+    }
+
+    match /reports/{reportId} {
+      allow get, list: if isSignedIn() && (
+        resource.data.reporterId == request.auth.uid ||
+        isAdmin());
+      allow create: if isSignedIn() &&
+        request.resource.data.reporterId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Privileged action trail. Written by trusted server code through the Admin
+    // SDK, which bypasses these rules.
+    match /auditLogs/{logId} {
+      allow read, write: if false;
+    }
+
+    // safetyEvents
+    //
+    // Section 24: "Do not expose safety classifications to classmates." The
+    // strongest way to guarantee that is no client read at all, so this follows
+    // the pattern already used for transferProblems and assignmentReferences.
+    //
+    // The student is not given a read either. That is a deliberate choice rather
+    // than an oversight: the message they receive already tells them a teacher was
+    // informed, section 24 forbids promising secrecy, and a queryable record of
+    // one's own safety flags would let a student check which phrasings trip the
+    // classifier and tune around it.
+    //
+    // Human review happens through an authorized server route under Admin
+    // credentials, the same shape as every teacher read since Phase 6.
+    match /safetyEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    // rateLimits
+    //
+    // Counters written under a transaction by lib/security/rate-limit.ts. A client
+    // that could read these could measure its remaining quota precisely; a client
+    // that could write them would not be rate limited at all, which is the
+    // "rate-limit bypass" threat section 41 names. Neither is permitted.
+    match /rateLimits/{limitKey} {
+      allow read, write: if false;
+    }
+  }
+}

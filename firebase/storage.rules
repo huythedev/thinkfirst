@@ -1,0 +1,47 @@
+rules_version = '2';
+
+// ThinkFirst Cloud Storage security rules.
+//
+// This file governs `problem-images/{userId}/{imageId}`, which is the path
+// `app/api/problem-images/route.ts` actually writes. Until Phase 7 it governed a
+// path nothing wrote, which is why the Phase 7 exit criteria name it: a rules
+// file for a feature that does not exist proves nothing.
+//
+// Two changes from the version that sat here unused, both corrections rather
+// than additions:
+//
+// 1. Client writes are now denied. The previous rule let a signed-in student
+//    upload straight to their own prefix, bounded only by `request.resource.size`
+//    and `contentType.matches('image/.*')`. Both are declarations: the content
+//    type on a Storage write is a header the client sets, so any file at all can
+//    be uploaded as `image/png`. The Phase 7 exit criterion requires the type to
+//    be validated from file *content*, and rules cannot read bytes. So the upload
+//    route sniffs the leading bytes, bounds the dimensions, strips EXIF, and
+//    writes with Admin credentials, which bypass these rules. Leaving a client
+//    write path open would leave a way to put unvalidated bytes in the bucket
+//    beside the validated ones.
+//
+// 2. Teacher read is removed. The previous rule let anyone whose `users` document
+//    said `role == 'teacher'` read every problem image belonging to every student
+//    in the project -- not just their own classrooms, since the path carries no
+//    classroom. That is exactly the blanket-access shape deliberately absent from
+//    `firestore.rules`, where teachers hold no client read over student work.
+//    Section 5.8 gives teachers no default access to a student's problem content.
+//
+// What remains is a direct read by the owning student. The application does not
+// rely on it -- the workspace fetches through `GET /api/problem-images/[imageId]`,
+// which verifies an ID token and checks ownership -- but a student reading their
+// own upload is within the privacy model.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /problem-images/{userId}/{imageId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    // A path the application does not write is a path no one may read.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

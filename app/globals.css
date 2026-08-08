@@ -1,0 +1,27 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/*
+ * Section 40: "Reduced motion."
+ *
+ * The application uses 16 animated elements, mostly `animate-pulse` loading
+ * skeletons and `animate-spin` sending indicators. None of them honoured the
+ * operating system's reduced-motion preference, which for a vestibular
+ * disorder is not a stylistic detail: a pulsing skeleton behind a wall of text
+ * is exactly the kind of repeated motion the setting exists to stop.
+ *
+ * Motion is reduced to a single step rather than removed outright. A spinner
+ * with `animation: none` still reads as "in progress" to a sighted user because
+ * it remains on screen, and the accompanying `role="status"` text is what
+ * actually announces state, so nothing is lost by holding it still.
+ */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}

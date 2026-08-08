@@ -1,0 +1,244 @@
+{
+  "source_file": "THINKFIRST_Instruction(2).md",
+  "source_sha256": "82749348cd6651b6f957f1d3d179efc885a1bf73bfe371ace8e3c33ab28eac1a",
+  "strategy": "logical responsibility modules",
+  "always_load": [
+    "00_AGENT_ROUTER.md"
+  ],
+  "modules": [
+    {
+      "file": "01_PRODUCT_FOUNDATION.md",
+      "title": "Product Foundation",
+      "sections": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "use": "Mission, MVP scope, non-goals, product principles, and user roles.",
+      "line_count": 275,
+      "byte_size": 8121,
+      "sha256": "91509f39872bfff1fe1f3306f8c3d13b8636c5d135c06e29b6d7f3079693ac2d"
+    },
+    {
+      "file": "02_PEDAGOGY_AND_LEARNING_LOGIC.md",
+      "title": "Pedagogy and Learning Logic",
+      "sections": [
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "use": "Learning modes, hint ladder, strictness, grade behavior, subjects, flows, and Independence Score.",
+      "line_count": 510,
+      "byte_size": 12736,
+      "sha256": "0a9d00ae4204f5d59c907974dbe3562d61ee7131773b0ef1600e826311010af7",
+      "amended": true,
+      "amendment_note": "Supersession notice added at the top of section 13. Section 56 of module 12 governs score computation."
+    },
+    {
+      "file": "03_AI_ORCHESTRATION_AND_POLICY.md",
+      "title": "AI Orchestration and Policy",
+      "sections": [
+        14,
+        15,
+        16,
+        17,
+        18
+      ],
+      "use": "AI pipeline, analysis/response schemas, and deterministic policy engine.",
+      "line_count": 265,
+      "byte_size": 5644,
+      "sha256": "26d52df30e2110c1f10a08966b29244948b744f21653963ef6927adeb46268aa"
+    },
+    {
+      "file": "04_MODEL_PROMPTS_AND_VALIDATION.md",
+      "title": "Model Prompts and Validation",
+      "sections": [
+        19,
+        20,
+        21,
+        22,
+        23
+      ],
+      "use": "Tutor/classifier/evaluator prompts, transfer generation, and mathematical validation.",
+      "line_count": 238,
+      "byte_size": 6595,
+      "sha256": "e2f33537c4542187b01c52d350c18dd7b7a22330b76784b45b60fc2080c46c1c"
+    },
+    {
+      "file": "05_SAFETY_PRIVACY_AND_SECURITY.md",
+      "title": "Safety, Privacy, and Security",
+      "sections": [
+        24,
+        25,
+        39,
+        41,
+        "41.1"
+      ],
+      "use": "Minor safety, data protection, Firestore rules, application security, and the mandatory trust-boundary and source-of-truth review.",
+      "line_count": 298,
+      "byte_size": 11151,
+      "sha256": "6addcc7abca5f2f2e2a9bf1069845c1c5db4d63706c5475a0e9f9e2517f069d2",
+      "amended": true,
+      "amendment_note": "Section 41.1 added (audit patch 3): mandatory trust boundary and source-of-truth review, the closed list of never-trusted request values, the model-output-is-untrusted rule, and the rules completeness matrix. Five-line addition to section 39 requiring the review before any rules change. Sections 24, 25 and 41 remain verbatim."
+    },
+    {
+      "file": "06_TECH_STACK_REPOSITORY_DATA_API.md",
+      "title": "Tech Stack, Repository, Data, and API",
+      "sections": [
+        26,
+        27,
+        28,
+        29
+      ],
+      "use": "Technology stack, monorepo layout, Firestore model, and API contracts.",
+      "line_count": 499,
+      "byte_size": 11213,
+      "sha256": "edf06236c5be4ff8594a8a1ffb75cd7388d99297857f62cc50a8625d318518b0",
+      "amended": true,
+      "amendment_note": "Section 29's requirements list replaced (audit patch 4a) to make policy inputs server-authoritative, require the section 41.1 review before implementing an endpoint, require server-side revalidation of model output, and state that API requirements attach to the role rather than the deployment shape."
+    },
+    {
+      "file": "07_FRONTEND_UX_ACCESSIBILITY.md",
+      "title": "Frontend, UX, Accessibility, and Image Input",
+      "sections": [
+        30,
+        31,
+        32,
+        33,
+        34,
+        40
+      ],
+      "use": "Routes, student/teacher interfaces, i18n, image input, and accessibility.",
+      "line_count": 258,
+      "byte_size": 5834,
+      "sha256": "2527430f5bef93fe2bf64b2f4e032ee9f71af073e3448ed3c11ad0d292617b33"
+    },
+    {
+      "file": "08_OBSERVABILITY_ANALYTICS_VERSIONING.md",
+      "title": "Observability, Analytics, and Versioning",
+      "sections": [
+        35,
+        36,
+        42
+      ],
+      "use": "Logs, metrics, model/prompt versions, and product analytics.",
+      "line_count": 118,
+      "byte_size": 2672,
+      "sha256": "1c9db52678c815ea8afe606006a45b8e74a9696155d66a434311d20cf52eedc6",
+      "amended": true,
+      "amendment_note": "Note added on scoring-v2 and the instrumentation-health metric."
+    },
+    {
+      "file": "09_EVALUATION_TESTING_AND_DEMO.md",
+      "title": "Evaluation, Testing, and Demo",
+      "sections": [
+        37,
+        38,
+        43,
+        44
+      ],
+      "use": "AI evaluation suite, automated testing, seed data, and required demo scenario.",
+      "line_count": 248,
+      "byte_size": 5405,
+      "sha256": "62f5b8e02243f98fb0d471ddd8a33dd12e38056c2bb39daeccf5270697ec195c"
+    },
+    {
+      "file": "10_DOCUMENTATION_ENVIRONMENT_AND_CICD.md",
+      "title": "Documentation, Environment, Local Development, and CI/CD",
+      "sections": [
+        45,
+        46,
+        47,
+        48
+      ],
+      "use": "README requirements, environment variables, local setup, and delivery pipeline.",
+      "line_count": 132,
+      "byte_size": 2300,
+      "sha256": "e9f676702779e70a4ce9586341332bea6e1839a49567d02a5a6aa04ab76e7438"
+    },
+    {
+      "file": "11_IMPLEMENTATION_ACCEPTANCE_AND_STANDARDS.md",
+      "title": "Implementation, Acceptance, and Engineering Standards",
+      "sections": [
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55
+      ],
+      "use": "Phases, failure handling, acceptance criteria, definition of done, coding standards, and agent output.",
+      "line_count": 659,
+      "byte_size": 23983,
+      "sha256": "9388c9503f0334f1d126ff4b75c26a601cf8f262cc2c4436ac673a07afa194a0",
+      "amended": true,
+      "amendment_note": "Session log requirement added to Phase 0, section 52 and section 54. Phase 5 now points at section 56 for the Independence Score. 2026-08-06: phase gate and per-phase exit criteria added to section 49 (patch 2a), sections 52.1 and 52.2 added (patch 2b), and section 54's end-of-task list replaced by the completion report with forbidden claims (patch 2c). Original phase bodies are unchanged."
+    },
+    {
+      "file": "12_SCORING_MODEL_AND_AGENT_LOGGING.md",
+      "title": "Independence Score v2 and Agent Session Logging",
+      "sections": [
+        56,
+        57
+      ],
+      "use": "Normative Independence Score v2 algorithm, and the mandatory agent session log format.",
+      "line_count": 387,
+      "byte_size": 19470,
+      "sha256": "ca3d1d0ec47f329f04c51f712a0c8cfc5e70e23fd6fbdbfd71476726a3f210de",
+      "origin": "amendment",
+      "amendment_note": "Not present in the source master file. Authored 2026-08-06 after auditing scoring-v1 by execution. Section 56 supersedes the mechanics of section 13. Section 57.5 later registered docs/progress.md as a per-session deliverable."
+    }
+  ],
+  "router": {
+    "file": "00_AGENT_ROUTER.md",
+    "line_count": 177,
+    "byte_size": 11966,
+    "sha256": "708db20dd96027ecb860b58b72fec85fd05fa3440490d6c78d0e6648cb3cf5b1",
+    "amended": true,
+    "amendment_note": "Module 12 registered; logging directive and score-routing rules added; progress-ledger directive added. 2026-08-06: active-scope and instruction-priority preambles added, and the context-loading rule, module combinations and implementation sequence replaced by mandatory pairs plus task-type routing (patch 1)."
+  },
+  "amendments": [
+    {
+      "date": "2026-08-06",
+      "sections": [
+        "41.1",
+        29,
+        49,
+        "52.1",
+        "52.2",
+        54
+      ],
+      "file": "00_AGENT_ROUTER.md, 05_SAFETY_PRIVACY_AND_SECURITY.md, 06_TECH_STACK_REPOSITORY_DATA_API.md, 11_IMPLEMENTATION_ACCEPTANCE_AND_STANDARDS.md",
+      "reason": "Applied audit patches 1, 2a, 2b, 2c, 3 and 4a from docs/INSTRUCTION-AUDIT.md. The set specified the product well and contracted it poorly: no scope limit in the always-loaded file, no phase exit criteria, and no requirement to enumerate trusted values before coding, which permitted a working answer-disclosure exploit. These patches add the active-scope rule, the instruction priority order, mandatory module pairs, per-phase exit criteria, the implementation-state vocabulary and completeness sweep, the completion report with forbidden claims, the section 41.1 trust-boundary review, and server-authoritative policy inputs in section 29.",
+      "log": "docs/logs/2026-08-06-04-phase-0-planning-completion.md"
+    },
+    {
+      "date": "2026-08-06",
+      "sections": [
+        57
+      ],
+      "file": "00_AGENT_ROUTER.md, 12_SCORING_MODEL_AND_AGENT_LOGGING.md",
+      "reason": "Registered docs/progress.md as the standing twelve-phase progress ledger and a mandatory per-session deliverable. The instruction set required a plan, assumptions and a log, but nothing tracked cumulative completion against phase exit criteria, so completion state was only discoverable by a fresh audit. Section 57.5 also records why the ledger and SPEC-AUDIT.md measure different things.",
+      "log": "docs/logs/2026-08-06-03-instruction-audit-and-progress-ledger.md"
+    },
+    {
+      "date": "2026-08-06",
+      "sections": [
+        56,
+        57
+      ],
+      "file": "12_SCORING_MODEL_AND_AGENT_LOGGING.md",
+      "reason": "scoring-v1 was audited by execution and found to reward disengagement: skipping the transfer task scored 100 while attempting it for partial credit scored 79. Section 13 also left the difficulty adjustment and reasoning rubric unspecified. Section 57 adds the session-log requirement that the original instruction set lacked.",
+      "log": "docs/logs/2026-08-06-01-scoring-model-and-logging.md"
+    }
+  ],
+  "integrity_note": "Modules marked \"amended\": true no longer match their original master-file checksums. This is intentional. Their sha256 values were regenerated from the files on disk on 2026-08-06 and describe current content, not source fidelity. Sections 1-55 remain verbatim apart from the clearly marked amendment notices; sections 56 and later were authored in this repository."
+}

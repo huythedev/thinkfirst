@@ -1,0 +1,106 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main, staging]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy-development:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Deploy Firebase rules and indexes
+        uses: w9jds/firebase-action@v14
+        with:
+          args: deploy --only firestore:rules,firestore:indexes,storage --project ${{ vars.FIREBASE_PROJECT_ID }}
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      - name: Deploy application to Cloud Run
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: |
+          gcloud run deploy thinkfirst-development \
+            --source . \
+            --project "${{ vars.FIREBASE_PROJECT_ID }}" \
+            --region "${{ vars.GCP_REGION }}" \
+            --allow-unauthenticated \
+            --set-env-vars "NODE_ENV=production,GOOGLE_CLOUD_PROJECT=${{ vars.FIREBASE_PROJECT_ID }},GOOGLE_CLOUD_LOCATION=${{ vars.GCP_REGION }},GEMINI_TUTOR_MODEL=${{ vars.GEMINI_TUTOR_MODEL }},GEMINI_CLASSIFIER_MODEL=${{ vars.GEMINI_CLASSIFIER_MODEL }},GEMINI_VALIDATOR_MODEL=${{ vars.GEMINI_VALIDATOR_MODEL }}" \
+            --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest"
+
+  deploy-staging:
+    if: github.ref == 'refs/heads/staging'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Deploy Firebase rules and indexes
+        uses: w9jds/firebase-action@v14
+        with:
+          args: deploy --only firestore:rules,firestore:indexes,storage --project ${{ vars.FIREBASE_PROJECT_ID }}
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      - name: Authenticate Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: |
+          gcloud run deploy thinkfirst-staging \
+            --source . \
+            --project "${{ vars.FIREBASE_PROJECT_ID }}" \
+            --region "${{ vars.GCP_REGION }}" \
+            --allow-unauthenticated \
+            --set-env-vars "NODE_ENV=production,GOOGLE_CLOUD_PROJECT=${{ vars.FIREBASE_PROJECT_ID }},GOOGLE_CLOUD_LOCATION=${{ vars.GCP_REGION }},GEMINI_TUTOR_MODEL=${{ vars.GEMINI_TUTOR_MODEL }},GEMINI_CLASSIFIER_MODEL=${{ vars.GEMINI_CLASSIFIER_MODEL }},GEMINI_VALIDATOR_MODEL=${{ vars.GEMINI_VALIDATOR_MODEL }}" \
+            --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest"
+
+  deploy-production:
+    if: github.ref == 'refs/heads/main'
+    needs: deploy-development
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.APP_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Deploy application to Cloud Run
+        run: |
+          gcloud run deploy thinkfirst-production \
+            --source . \
+            --project "${{ vars.FIREBASE_PROJECT_ID }}" \
+            --region "${{ vars.GCP_REGION }}" \
+            --allow-unauthenticated \
+            --set-env-vars "NODE_ENV=production,GOOGLE_CLOUD_PROJECT=${{ vars.FIREBASE_PROJECT_ID }},GOOGLE_CLOUD_LOCATION=${{ vars.GCP_REGION }},GEMINI_TUTOR_MODEL=${{ vars.GEMINI_TUTOR_MODEL }},GEMINI_CLASSIFIER_MODEL=${{ vars.GEMINI_CLASSIFIER_MODEL }},GEMINI_VALIDATOR_MODEL=${{ vars.GEMINI_VALIDATOR_MODEL }}" \
+            --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest"

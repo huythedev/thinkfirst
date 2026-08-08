@@ -1,0 +1,21 @@
+# Secrets
+.env
+.env.local
+.env*.local
+
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+tsconfig.tsbuildinfo
+
+# Test artifacts
+playwright-report/
+test-results/
+
+# OS
+.DS_Store
+
+docs/

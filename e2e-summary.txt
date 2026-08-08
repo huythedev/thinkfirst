@@ -1,0 +1,164 @@
+﻿
+    Γ£ô   1 [chromium] ΓÇ║ tests\e2e\responsive.spec.ts:21:7 ΓÇ║ responsive 
+and accessibility basics ΓÇ║ the sign-in page does not overflow horizontally 
+at either size (2.3s)
+> [WebServer] (node:35228) MetadataLookupWarning: received unexpected error = 
+  All promises were rejected code = UNKNOWN
+  [WebServer] (Use `node --trace-warnings ...` to show where the warning was 
+  
+>     Error: expect(locator).toBeVisible() failed
+  
+      Locator: getByLabel('Your message to the tutor')
+>     Expected: visible
+>     Timeout: 15000ms
+>     Error: element(s) not found
+  
+      Call log:
+>       - Expect "toBeVisible" with timeout 15000ms
+        - waiting for getByLabel('Your message to the tutor')
+  
+        46 |     const composer = page.getByLabel('Your message to the tutor');
+>     > 47 |     await expect(composer).toBeVisible();
+           |                            ^
+        48 |
+      attachment #1: screenshot (image/png) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö
+ÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+>     test-results\responsive-responsive-and--5d5c7--usable-at-a-phone-viewport
+-chromium\test-failed-1.png
+      ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓ
+öÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö
+ÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  
+  
+>     Error: expect(locator).toBeVisible() failed
+  
+      Locator: getByRole('log', { name: /conversation with your tutor/i })
+>     Expected: visible
+>     Timeout: 15000ms
+>     Error: element(s) not found
+  
+      Call log:
+>       - Expect "toBeVisible" with timeout 15000ms
+        - waiting for getByRole('log', { name: /conversation with your tutor/i 
+})
+  
+        104 |     const log = page.getByRole('log', { name: /conversation with 
+your tutor/i });
+>     > 105 |     await expect(log).toBeVisible();
+            |                       ^
+>       106 |     await expect(log).toHaveAttribute('aria-live', 
+/polite|assertive/);
+        107 |   });
+        108 | });
+      attachment #1: screenshot (image/png) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö
+ÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+>     test-results\responsive-responsive-and--846e4-eaders-hear-the-tutor-reply
+-chromium\test-failed-1.png
+      ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓ
+öÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö
+ÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  
+  
+>     Error: expect(locator).toBeVisible() failed
+  
+      Locator: getByRole('log', { name: /conversation with your tutor/i })
+>     Expected: visible
+>     Timeout: 15000ms
+>     Error: element(s) not found
+  
+      Call log:
+>       - Expect "toBeVisible" with timeout 15000ms
+        - waiting for getByRole('log', { name: /conversation with your tutor/i 
+})
+  
+        80 |     await page.goto(`/student/session/${sessionId}`);
+>     > 81 |     await expect(page.getByRole('log', { name: /conversation with 
+your tutor/i })).toBeVisible();
+           |                                                                   
+                 ^
+        82 |   });
+      attachment #1: screenshot (image/png) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö
+ÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+>     test-results\scenarios-Scenario-A-stude-d7c8e-scalates-one-rung-at-a-time
+-chromium\test-failed-1.png
+      ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓ
+öÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö
+ÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  
+  
+>     Error: expect(locator).toBeVisible() failed
+  
+      Locator: getByLabel('Your message to the tutor')
+>     Expected: visible
+>     Timeout: 15000ms
+>     Error: element(s) not found
+  
+      Call log:
+>       - Expect "toBeVisible" with timeout 15000ms
+        - waiting for getByLabel('Your message to the tutor')
+  
+        46 |     const composer = page.getByLabel('Your message to the tutor');
+>     > 47 |     await expect(composer).toBeVisible();
+           |                            ^
+        48 |
+      attachment #1: screenshot (image/png) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö
+ÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+>     test-results\responsive-responsive-and--5d5c7--usable-at-a-phone-viewport
+-mobile\test-failed-1.png
+      ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓ
+öÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö
+ÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  
+  
+>     Error: expect(locator).toBeVisible() failed
+  
+      Locator: getByRole('log', { name: /conversation with your tutor/i })
+>     Expected: visible
+>     Timeout: 15000ms
+>     Error: element(s) not found
+  
+      Call log:
+>       - Expect "toBeVisible" with timeout 15000ms
+        - waiting for getByRole('log', { name: /conversation with your tutor/i 
+})
+  
+        104 |     const log = page.getByRole('log', { name: /conversation with 
+your tutor/i });
+>     > 105 |     await expect(log).toBeVisible();
+            |                       ^
+>       106 |     await expect(log).toHaveAttribute('aria-live', 
+/polite|assertive/);
+        107 |   });
+        108 | });
+      attachment #1: screenshot (image/png) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö
+ÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+>     test-results\responsive-responsive-and--846e4-eaders-hear-the-tutor-reply
+-mobile\test-failed-1.png
+      ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓ
+öÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓö
+ÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  
+  
+>   5 failed
+      [chromium] ΓÇ║ tests\e2e\responsive.spec.ts:35:7 ΓÇ║ responsive and 
+accessibility basics ΓÇ║ the learning workspace is usable at a phone viewport 
+      [chromium] ΓÇ║ tests\e2e\responsive.spec.ts:91:7 ΓÇ║ responsive and 
+accessibility basics ΓÇ║ the workspace exposes a live region so screen readers 
+hear the tutor reply 
+      [mobile] ΓÇ║ tests\e2e\responsive.spec.ts:91:7 ΓÇ║ responsive and 
+accessibility basics ΓÇ║ the workspace exposes a live region so screen readers 
+hear the tutor reply 
+>   1 skipped
+>   9 passed (1.8m)
+
+
