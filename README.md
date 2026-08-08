@@ -475,6 +475,12 @@ question and `x^2 - 7x + 12 = 0` to solve alone.
 
 ## License
 
-No license file is present, so **all rights are reserved by default** and no
-permission to use, copy, modify or distribute is granted. This is a student
-project built to a specification; add a `LICENSE` file before sharing it.
+ThinkFirst is open-source software licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+You are free to use, study, modify, and redistribute ThinkFirst under the terms of the AGPL-3.0.
+
+If you modify ThinkFirst and make that modified version available for users to interact with over a network, the AGPL requires you to offer those users access to the corresponding source code of that version under the same license.
+
+See [LICENSE](LICENSE) for the full license terms.
+
+Third-party libraries, models, APIs, and other dependencies used by ThinkFirst remain subject to their respective licenses and terms.
