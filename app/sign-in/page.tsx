@@ -1,17 +1,24 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { FirebaseError } from 'firebase/app';
-import { useRouter } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase/config';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { doc, getDoc } from 'firebase/firestore';
 
-export default function SignInPage() {
+function SignInContent() {
   const router = useRouter();
   const { user, profile, loading, refreshProfile } = useAuth();
-  const [error, setError] = useState('');
+  const searchParams = useSearchParams();
+  const urlError = searchParams.get('error');
+
+  const [error, setError] = useState(
+    urlError === 'verification_unavailable'
+      ? 'Server configuration is incomplete. Please contact the administrator.'
+      : ''
+  );
   const [isSigningIn, setIsSigningIn] = useState(false);
 
   useEffect(() => {
@@ -79,11 +86,11 @@ export default function SignInPage() {
   if (loading) return null;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <div className="max-w-md w-full bg-white rounded-2xl shadow-sm p-8 space-y-8 border border-gray-100">
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="max-w-md w-full bg-surface rounded-2xl shadow-sm p-8 space-y-8 border border-border">
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-gray-900">Sign in</h1>
-          <p className="mt-2 text-gray-600">Continue to ThinkFirst</p>
+          <h1 className="text-3xl font-bold text-foreground">Sign in</h1>
+          <p className="mt-2 text-foreground-muted">Continue to ThinkFirst</p>
         </div>
 
         {error && (
@@ -95,7 +102,7 @@ export default function SignInPage() {
         <button
           onClick={handleGoogleSignIn}
           disabled={isSigningIn}
-          className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white border border-gray-300 rounded-xl text-gray-700 font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-surface border border-border rounded-xl text-foreground-muted font-medium hover:bg-background transition-colors disabled:opacity-50"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -107,5 +114,13 @@ export default function SignInPage() {
         </button>
       </div>
     </div>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background" />}>
+      <SignInContent />
+    </Suspense>
   );
 }

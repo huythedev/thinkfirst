@@ -30,7 +30,6 @@ export default function NewClassroom() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${await user.getIdToken()}`,
         },
         body: JSON.stringify({
           name: formData.name,
@@ -54,13 +53,13 @@ export default function NewClassroom() {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
-        <Link href="/teacher/classrooms" className="text-gray-500 hover:text-gray-900">
+        <Link href="/teacher/classrooms" className="text-foreground-muted hover:text-foreground">
           &larr; Back
         </Link>
-        <h1 className="text-3xl font-bold text-gray-900">Create New Classroom</h1>
+        <h1 className="text-3xl font-bold text-foreground">Create New Classroom</h1>
       </div>
 
-      <div className="bg-white p-8 rounded-xl border border-gray-200 shadow-sm">
+      <div className="bg-surface p-8 rounded-xl border border-border shadow-sm">
         {error && (
           <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-lg text-sm">
             {error}
@@ -69,7 +68,7 @@ export default function NewClassroom() {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="name" className="block text-sm font-medium text-foreground-muted mb-1">
               Classroom Name
             </label>
             <input
@@ -78,21 +77,21 @@ export default function NewClassroom() {
               required
               value={formData.name}
               onChange={(e) => setFormData({...formData, name: e.target.value})}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="e.g., Grade 8 Algebra - Section A"
             />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label htmlFor="grade" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="grade" className="block text-sm font-medium text-foreground-muted mb-1">
                 Grade Level
               </label>
               <select
                 id="grade"
                 value={formData.grade}
                 onChange={(e) => setFormData({...formData, grade: Number(e.target.value)})}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value={6}>Grade 6</option>
                 <option value={7}>Grade 7</option>
@@ -105,14 +104,14 @@ export default function NewClassroom() {
             </div>
 
             <div>
-              <label htmlFor="subject" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="subject" className="block text-sm font-medium text-foreground-muted mb-1">
                 Subject
               </label>
               <select
                 id="subject"
                 value={formData.subject}
                 onChange={(e) => setFormData({...formData, subject: e.target.value})}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="Mathematics">Mathematics</option>
                 <option value="Science">Science</option>
@@ -121,29 +120,29 @@ export default function NewClassroom() {
           </div>
 
           <div>
-            <label htmlFor="defaultStrictness" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="defaultStrictness" className="block text-sm font-medium text-foreground-muted mb-1">
               Default Assistance Strictness
             </label>
             <select
               id="defaultStrictness"
               value={formData.defaultStrictness}
               onChange={(e) => setFormData({...formData, defaultStrictness: e.target.value})}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="supportive">Supportive (Fewer barriers, earlier explanations)</option>
               <option value="balanced">Balanced (Default, requires attempt before substantial help)</option>
               <option value="independence">Independence-focused (Requires more explanation)</option>
               <option value="assessment_safe">Assessment-safe (No final answers allowed)</option>
             </select>
-            <p className="mt-2 text-xs text-gray-500">
+            <p className="mt-2 text-xs text-foreground-muted">
               This policy determines how the AI responds to students in this classroom.
             </p>
           </div>
 
-          <div className="pt-4 border-t border-gray-100 flex justify-end gap-4">
+          <div className="pt-4 border-t border-border flex justify-end gap-4">
             <Link 
               href="/teacher/classrooms"
-              className="px-4 py-2 text-gray-700 font-medium hover:bg-gray-50 rounded-lg transition-colors"
+              className="px-4 py-2 text-foreground-muted font-medium hover:bg-background rounded-lg transition-colors"
             >
               Cancel
             </Link>

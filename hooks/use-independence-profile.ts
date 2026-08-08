@@ -30,6 +30,7 @@ export interface StoredProfile {
   sessionsConsidered: number;
   sessionsExcluded: number;
   suggestion: string | null;
+  suggestionCode?: string | null;
   components: ComponentScore[];
   generatedAt: string | null;
 }
@@ -98,9 +99,7 @@ export function useIndependenceProfile(studentId: string | undefined): UseIndepe
 
     const load = async () => {
       try {
-        const response = await fetch('/api/session/progress', {
-          headers: { Authorization: `Bearer ${await user.getIdToken()}` },
-        });
+        const response = await fetch(window.location.origin + '/api/session/progress');
 
         if (!response.ok) throw new Error(`progress request failed: ${response.status}`);
 

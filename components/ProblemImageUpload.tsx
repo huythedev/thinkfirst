@@ -118,7 +118,6 @@ export function ProblemImageUpload({ onExtraction, onAttachedChange }: ProblemIm
 
       const response = await fetch('/api/problem-images', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${await user.getIdToken()}` },
         body,
       });
 
@@ -197,7 +196,6 @@ export function ProblemImageUpload({ onExtraction, onAttachedChange }: ProblemIm
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${await user.getIdToken()}`,
         },
         body: JSON.stringify({ confirmedText: text }),
       });
@@ -231,7 +229,7 @@ export function ProblemImageUpload({ onExtraction, onAttachedChange }: ProblemIm
   return (
     <div className="space-y-4">
       <div>
-        <label htmlFor={`${fieldId}-file`} className="block text-sm font-medium text-gray-700 mb-2">
+        <label htmlFor={`${fieldId}-file`} className="block text-sm font-medium text-foreground-muted mb-2">
           Or upload a photo of the problem
         </label>
         <input
@@ -244,15 +242,15 @@ export function ProblemImageUpload({ onExtraction, onAttachedChange }: ProblemIm
             const file = event.target.files?.[0];
             if (file) void handleFile(file);
           }}
-          className="block w-full text-sm text-gray-700 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
+          className="block w-full text-sm text-foreground-muted file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
           aria-describedby={`${fieldId}-privacy ${fieldId}-limits`}
         />
-        <p id={`${fieldId}-limits`} className="mt-2 text-xs text-gray-500">
+        <p id={`${fieldId}-limits`} className="mt-2 text-xs text-foreground-muted">
           PNG, JPEG, WebP or GIF, up to {Math.floor(MAX_IMAGE_BYTES / (1024 * 1024))} MB and{' '}
           {MAX_IMAGE_DIMENSION} pixels a side.
         </p>
         {/* Section 34: warn students not to upload personal documents. */}
-        <p id={`${fieldId}-privacy`} className="mt-1 text-xs text-gray-500">
+        <p id={`${fieldId}-privacy`} className="mt-1 text-xs text-foreground-muted">
           Upload only the problem. Do not upload ID cards, letters, medical or financial documents,
           or photos showing other people.
         </p>
@@ -276,13 +274,13 @@ export function ProblemImageUpload({ onExtraction, onAttachedChange }: ProblemIm
       )}
 
       {upload && (
-        <div className="rounded-xl border border-gray-200 p-4 space-y-4">
+        <div className="rounded-xl border border-border p-4 space-y-4">
           <div className="flex items-start justify-between gap-4">
-            <h3 className="text-sm font-semibold text-gray-900">From your image</h3>
+            <h3 className="text-sm font-semibold text-foreground">From your image</h3>
             <button
               type="button"
               onClick={reset}
-              className="text-xs font-medium text-gray-500 underline hover:text-gray-700"
+              className="text-xs font-medium text-foreground-muted underline hover:text-foreground-muted"
             >
               Remove image
             </button>
@@ -293,11 +291,11 @@ export function ProblemImageUpload({ onExtraction, onAttachedChange }: ProblemIm
           <img
             src={upload.previewUrl}
             alt="The problem image you uploaded"
-            className="max-h-64 w-auto rounded-lg border border-gray-200"
+            className="max-h-64 w-auto rounded-lg border border-border"
           />
 
           {upload.containsPersonalInformation && (
-            <div role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+            <div role="alert" className="rounded-lg bg-background p-3 text-sm text-amber-900">
               This image looks like it contains personal information. Only the problem text was
               kept, but consider removing the image and uploading a closer photo of just the
               question.
@@ -307,7 +305,7 @@ export function ProblemImageUpload({ onExtraction, onAttachedChange }: ProblemIm
           {/* Section 34: extraction-confidence warning when needed. Not colour
               alone, per section 40: the heading states the condition in words. */}
           {upload.requiresConfirmation && !confirmed && (
-            <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+            <div className="rounded-lg bg-background p-3 text-sm text-amber-900">
               <p className="font-semibold">Check this text before you start</p>
               <p className="mt-1">
                 {upload.extractionAvailable
@@ -325,7 +323,7 @@ export function ProblemImageUpload({ onExtraction, onAttachedChange }: ProblemIm
           )}
 
           {upload.containsStudentWork && (
-            <p className="text-xs text-gray-600">
+            <p className="text-xs text-foreground-muted">
               Your own working was left out, so the tutor starts from the question itself.
             </p>
           )}
@@ -333,7 +331,7 @@ export function ProblemImageUpload({ onExtraction, onAttachedChange }: ProblemIm
           <div>
             <label
               htmlFor={`${fieldId}-text`}
-              className="block text-sm font-medium text-gray-700 mb-2"
+              className="block text-sm font-medium text-foreground-muted mb-2"
             >
               Extracted question
             </label>
@@ -351,12 +349,12 @@ export function ProblemImageUpload({ onExtraction, onAttachedChange }: ProblemIm
                   }
                 }}
                 rows={5}
-                className="w-full rounded-xl border border-gray-300 p-3 font-mono text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-xl border border-border p-3 font-mono text-sm outline-none focus:ring-2 focus:ring-blue-500"
               />
             ) : (
               <div
                 id={`${fieldId}-text`}
-                className="whitespace-pre-wrap rounded-xl bg-gray-50 p-3 font-mono text-sm text-gray-900"
+                className="whitespace-pre-wrap rounded-xl bg-background p-3 font-mono text-sm text-foreground"
               >
                 {editedText || 'No text was found in this image.'}
               </div>
@@ -368,7 +366,7 @@ export function ProblemImageUpload({ onExtraction, onAttachedChange }: ProblemIm
               <button
                 type="button"
                 onClick={() => setEditing(true)}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground-muted hover:bg-background"
               >
                 Edit extracted text
               </button>

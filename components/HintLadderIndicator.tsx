@@ -1,35 +1,7 @@
 'use client';
 
 import { MAX_HINT_LEVEL } from '@/lib/types/ai/request';
-
-/**
- * Section 8 of module 02. The rungs are named so the indicator says what the
- * student has actually received, not just a number out of seven.
- */
-const LADDER_LABELS = [
-  'Clarify',
-  'Recall',
-  'Strategy choice',
-  'Guiding question',
-  'Partial setup',
-  'Worked next step',
-  'Partial solution',
-  'Full solution',
-] as const;
-
-const MODE_LABELS: Record<string, string> = {
-  learn: 'Learn',
-  practice: 'Practice',
-  assignment: 'Assignment',
-  verify: 'Verify',
-};
-
-const STRICTNESS_LABELS: Record<string, string> = {
-  supportive: 'Supportive',
-  balanced: 'Balanced',
-  independence: 'Independence',
-  assessment_safe: 'Assessment safe',
-};
+import { useTranslation } from '@/lib/i18n/client';
 
 interface HintLadderIndicatorProps {
   mode: string;
@@ -56,60 +28,62 @@ export function HintLadderIndicator({
   status,
   turnCount,
 }: HintLadderIndicatorProps) {
+  const { t } = useTranslation();
   const level = Math.min(Math.max(currentHintLevel, 0), MAX_HINT_LEVEL);
-  const rung = LADDER_LABELS[level] ?? LADDER_LABELS[0];
+  const rung = t(`domain.hintLevels.${level}`) || t(`domain.hintLevels.0`);
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl shadow-sm px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-3">
+    <div className="bg-surface border border-border rounded-2xl shadow-sm px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-3">
       <div className="flex items-center gap-2">
         <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded font-medium capitalize">
-          {subject}
+          {t(`domain.subjects.${subject}`) || subject}
         </span>
         <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded font-medium">
-          {MODE_LABELS[mode] ?? mode}
+          {t(`domain.modes.${mode}`) || mode}
         </span>
-        <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded font-medium">
-          {STRICTNESS_LABELS[strictness] ?? strictness}
+        <span className="text-xs bg-surface-muted text-foreground-muted px-2 py-1 rounded font-medium">
+          {t(`domain.strictness.${strictness}`) || strictness}
         </span>
         {status !== 'active' && (
           <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded font-medium capitalize">
-            {status}
+            {t(`domain.sessionStatus.${status}`) || status}
           </span>
         )}
       </div>
 
       <div className="flex items-center gap-3 flex-1 min-w-[16rem]">
-        <span className="text-xs font-medium text-gray-500 whitespace-nowrap">Hint level</span>
+        <span className="text-xs font-medium text-foreground-muted whitespace-nowrap">{t('activeSession.hintLevel')}</span>
         <div
           className="flex gap-1 flex-1"
           role="meter"
           aria-valuemin={0}
           aria-valuemax={MAX_HINT_LEVEL}
           aria-valuenow={level}
-          aria-valuetext={`Hint level ${level} of ${MAX_HINT_LEVEL}: ${rung}`}
+          aria-valuetext={t('activeSession.hintLevelDisplay', { current: level, max: MAX_HINT_LEVEL, rung })}
         >
-          {LADDER_LABELS.map((label, index) => (
+          {Array.from({ length: MAX_HINT_LEVEL + 1 }).map((_, index) => (
             <span
-              key={label}
-              title={`Level ${index}: ${label}`}
+              key={index}
+              title={`Level ${index}: ${t(`domain.hintLevels.${index}`)}`}
               className={`h-2 flex-1 rounded-full ${
                 index <= level
                   ? index >= 6
-                    ? 'bg-amber-500'
+                    ? 'bg-background0'
                     : 'bg-blue-500'
                   : 'bg-gray-200'
               }`}
             />
           ))}
         </div>
-        <span className="text-xs font-semibold text-gray-700 whitespace-nowrap">
+        <span className="text-xs font-semibold text-foreground-muted whitespace-nowrap">
           {level} / {MAX_HINT_LEVEL} &middot; {rung}
         </span>
       </div>
 
-      <div className="text-xs text-gray-500 whitespace-nowrap">
-        {turnCount} {turnCount === 1 ? 'message' : 'messages'}
+      <div className="text-xs text-foreground-muted whitespace-nowrap">
+        {t(turnCount === 1 ? 'activeSession.messages_one' : 'activeSession.messages_other', { count: turnCount })}
       </div>
     </div>
   );
 }
+

@@ -6,6 +6,8 @@ import { db } from '@/lib/firebase/config';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { Strictness } from '@/lib/types/user';
 
+import { useTranslation } from '@/lib/i18n/client';
+
 const LANGUAGES: { value: 'en' | 'vi'; label: string }[] = [
   { value: 'en', label: 'English' },
   { value: 'vi', label: 'Tiếng Việt' },
@@ -13,26 +15,27 @@ const LANGUAGES: { value: 'en' | 'vi'; label: string }[] = [
 
 const GRADES = [6, 7, 8, 9, 10, 11, 12];
 
-const STRICTNESS_OPTIONS: { value: Strictness; label: string; description: string }[] = [
-  {
-    value: 'supportive',
-    label: 'Supportive',
-    description: 'More scaffolding earlier when you get stuck.',
-  },
-  {
-    value: 'balanced',
-    label: 'Balanced',
-    description: 'The default. Hints step up gradually as you work.',
-  },
-  {
-    value: 'independence',
-    label: 'Independence',
-    description: 'Fewer hints. You are pushed to try more on your own first.',
-  },
-];
-
 export default function StudentSettings() {
   const { user, profile, refreshProfile } = useAuth();
+  const { t } = useTranslation();
+
+  const STRICTNESS_OPTIONS: { value: Strictness; label: string; description: string }[] = [
+    {
+      value: 'supportive',
+      label: t('settings.supportive'),
+      description: t('settings.supportiveDesc'),
+    },
+    {
+      value: 'balanced',
+      label: t('settings.balanced'),
+      description: t('settings.balancedDesc'),
+    },
+    {
+      value: 'independence',
+      label: t('settings.independence'),
+      description: t('settings.independenceDesc'),
+    },
+  ];
 
   const [languageOverride, setLanguageOverride] = useState<'en' | 'vi' | null>(null);
   const [grade, setGrade] = useState<number>(8);
@@ -112,7 +115,7 @@ export default function StudentSettings() {
       setSaved(true);
     } catch (err) {
       console.error('Failed to save settings', err);
-      setError('Could not save your settings. Please try again.');
+      setError(t('settings.couldNotSave'));
     } finally {
       setSaving(false);
     }
@@ -123,31 +126,31 @@ export default function StudentSettings() {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <header>
-        <h1 className="text-3xl font-bold text-gray-900">Account Settings</h1>
-        <p className="text-gray-600 mt-2">
-          These apply to every new session, so the tutor matches your level and language.
+        <h1 className="text-3xl font-bold text-foreground">{t('settings.accountSettings')}</h1>
+        <p className="text-foreground-muted mt-2">
+          {t('settings.applyToEverySession')}
         </p>
       </header>
 
       {loading ? (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 animate-pulse space-y-4">
-          <div className="h-4 w-40 bg-gray-100 rounded" />
-          <div className="h-10 w-full bg-gray-100 rounded" />
-          <div className="h-4 w-40 bg-gray-100 rounded" />
-          <div className="h-10 w-full bg-gray-100 rounded" />
+        <div className="bg-surface rounded-2xl border border-border shadow-sm p-8 animate-pulse space-y-4">
+          <div className="h-4 w-40 bg-surface-muted rounded" />
+          <div className="h-10 w-full bg-surface-muted rounded" />
+          <div className="h-4 w-40 bg-surface-muted rounded" />
+          <div className="h-10 w-full bg-surface-muted rounded" />
         </div>
       ) : (
-        <form onSubmit={handleSave} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 space-y-8">
+        <form onSubmit={handleSave} className="bg-surface rounded-2xl border border-border shadow-sm p-8 space-y-8">
           <div>
-            <label htmlFor="language" className="block font-medium text-gray-800">
-              Language
+            <label htmlFor="language" className="block font-medium text-foreground">
+              {t('settings.language')}
             </label>
-            <p className="text-sm text-gray-500 mt-1">The tutor will explain in this language.</p>
+            <p className="text-sm text-foreground-muted mt-1">{t('settings.languageTutorDesc')}</p>
             <select
               id="language"
               value={language}
               onChange={(event) => setLanguageOverride(event.target.value as 'en' | 'vi')}
-              className="mt-3 w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-3 w-full border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {LANGUAGES.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -158,15 +161,15 @@ export default function StudentSettings() {
           </div>
 
           <div>
-            <label htmlFor="grade" className="block font-medium text-gray-800">
-              Grade
+            <label htmlFor="grade" className="block font-medium text-foreground">
+              {t('settings.grade')}
             </label>
-            <p className="text-sm text-gray-500 mt-1">Used to pitch explanations at the right level.</p>
+            <p className="text-sm text-foreground-muted mt-1">{t('settings.gradeDesc')}</p>
             <select
               id="grade"
               value={grade}
               onChange={(event) => setGrade(Number(event.target.value))}
-              className="mt-3 w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-3 w-full border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {GRADES.map((value) => (
                 <option key={value} value={value}>
@@ -177,9 +180,9 @@ export default function StudentSettings() {
           </div>
 
           <fieldset>
-            <legend className="font-medium text-gray-800">How much help do you want?</legend>
-            <p className="text-sm text-gray-500 mt-1">
-              Your teacher can override this for assignments.
+            <legend className="font-medium text-foreground">{t('settings.helpAmount')}</legend>
+            <p className="text-sm text-foreground-muted mt-1">
+              {t('settings.helpAmountDesc')}
             </p>
             <div className="mt-3 space-y-2">
               {STRICTNESS_OPTIONS.map((option) => (
@@ -188,7 +191,7 @@ export default function StudentSettings() {
                   className={`flex gap-3 items-start border-2 rounded-xl p-4 cursor-pointer transition-colors ${
                     strictness === option.value
                       ? 'border-blue-600 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
+                      : 'border-border hover:border-border'
                   }`}
                 >
                   <input
@@ -200,8 +203,8 @@ export default function StudentSettings() {
                     className="mt-1"
                   />
                   <span>
-                    <span className="block font-medium text-gray-900">{option.label}</span>
-                    <span className="block text-sm text-gray-500">{option.description}</span>
+                    <span className="block font-medium text-foreground">{option.label}</span>
+                    <span className="block text-sm text-foreground-muted">{option.description}</span>
                   </span>
                 </label>
               ))}
@@ -209,7 +212,7 @@ export default function StudentSettings() {
           </fieldset>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
-          {saved && !error && <p className="text-sm text-green-700">Settings saved.</p>}
+          {saved && !error && <p className="text-sm text-green-700">{t('common.saved')}</p>}
 
           <div className="flex items-center gap-3">
             <button
@@ -217,7 +220,7 @@ export default function StudentSettings() {
               disabled={saving}
               className="px-6 py-3 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700 disabled:opacity-60"
             >
-              {saving ? 'Saving...' : 'Save changes'}
+              {saving ? t('common.saving') : t('common.save')}
             </button>
           </div>
         </form>

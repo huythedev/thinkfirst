@@ -85,7 +85,6 @@ export default function NewAssignment() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${await user.getIdToken()}`,
         },
         body: JSON.stringify({
           title: form.title,
@@ -117,24 +116,24 @@ export default function NewAssignment() {
     }
   };
 
-  const field = 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';
-  const label = 'block text-sm font-medium text-gray-700 mb-1';
+  const field = 'w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';
+  const label = 'block text-sm font-medium text-foreground-muted mb-1';
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <Link
           href={`/teacher/classrooms/${classroomId}`}
-          className="text-gray-500 hover:text-gray-900"
+          className="text-foreground-muted hover:text-foreground"
         >
           &larr; Back
         </Link>
-        <h1 className="text-3xl font-bold text-gray-900">New assignment</h1>
+        <h1 className="text-3xl font-bold text-foreground">New assignment</h1>
       </div>
 
       <form
         onSubmit={handleSubmit}
-        className="bg-white p-8 rounded-lg border border-gray-200 shadow-sm max-w-3xl space-y-6"
+        className="bg-surface p-8 rounded-lg border border-border shadow-sm max-w-3xl space-y-6"
       >
         {error && (
           <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3" role="alert">
@@ -228,12 +227,12 @@ export default function NewAssignment() {
           <legend className={label}>Allowed learning modes</legend>
           <div className="flex flex-wrap gap-4">
             {MODE_VALUES.map((mode) => (
-              <label key={mode} className="flex items-center gap-2 text-sm text-gray-700">
+              <label key={mode} className="flex items-center gap-2 text-sm text-foreground-muted">
                 <input
                   type="checkbox"
                   checked={allowedModes.includes(mode)}
                   onChange={() => toggleMode(mode)}
-                  className="rounded border-gray-300"
+                  className="rounded border-border"
                 />
                 {MODE_LABELS[mode] ?? mode}
               </label>
@@ -274,32 +273,32 @@ export default function NewAssignment() {
         </div>
 
         <div className="space-y-3">
-          <label className="flex items-start gap-2 text-sm text-gray-700">
+          <label className="flex items-start gap-2 text-sm text-foreground-muted">
             <input
               type="checkbox"
               checked={form.allowFullSolutions}
               onChange={(event) => setForm({ ...form, allowFullSolutions: event.target.checked })}
-              className="mt-1 rounded border-gray-300"
+              className="mt-1 rounded border-border"
             />
             <span>
               Allow full solutions
-              <span className="block text-xs text-gray-500">
+              <span className="block text-xs text-foreground-muted">
                 When off, the tutor may not reveal a complete worked answer for this assignment.
               </span>
             </span>
           </label>
-          <label className="flex items-start gap-2 text-sm text-gray-700">
+          <label className="flex items-start gap-2 text-sm text-foreground-muted">
             <input
               type="checkbox"
               checked={form.requireTransferProblem}
               onChange={(event) =>
                 setForm({ ...form, requireTransferProblem: event.target.checked })
               }
-              className="mt-1 rounded border-gray-300"
+              className="mt-1 rounded border-border"
             />
             <span>
               Require a transfer problem
-              <span className="block text-xs text-gray-500">
+              <span className="block text-xs text-foreground-muted">
                 Students attempt a similar problem after guided help, which is how transfer is
                 measured.
               </span>
@@ -307,7 +306,7 @@ export default function NewAssignment() {
           </label>
         </div>
 
-        <div className="border-t border-gray-200 pt-6 space-y-4">
+        <div className="border-t border-border pt-6 space-y-4">
           <div>
             <label htmlFor="referenceAnswer" className={label}>
               Teacher reference answer (optional)
@@ -319,7 +318,7 @@ export default function NewAssignment() {
               value={form.referenceAnswer}
               onChange={(event) => setForm({ ...form, referenceAnswer: event.target.value })}
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-foreground-muted mt-1">
               Stored separately from the assignment and never readable by students.
             </p>
           </div>
@@ -347,7 +346,7 @@ export default function NewAssignment() {
           </button>
           <Link
             href={`/teacher/classrooms/${classroomId}`}
-            className="px-4 py-2 border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50"
+            className="px-4 py-2 border border-border rounded-lg font-medium text-foreground-muted hover:bg-background"
           >
             Cancel
           </Link>

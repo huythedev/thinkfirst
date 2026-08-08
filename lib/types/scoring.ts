@@ -158,6 +158,7 @@ export interface ComponentScore {
   confidence: number;
   state: EvidenceState;
   rationale: string;
+  rationaleCode?: string;
 }
 
 export interface SessionScore {
@@ -191,6 +192,7 @@ export interface IndependenceProfile {
   components: ComponentScore[];
   perSession: SessionScore[];
   suggestion: string | null;
+  suggestionCode?: string | null;
   scoringVersion: string;
 }
 

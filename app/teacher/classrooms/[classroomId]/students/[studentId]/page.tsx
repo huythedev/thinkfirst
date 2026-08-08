@@ -102,8 +102,8 @@ export default function StudentDetails() {
   if (notFound) {
     return (
       <div className="text-center p-12">
-        <h2 className="text-2xl font-bold text-gray-900">Student not found</h2>
-        <p className="text-gray-500 mt-2">
+        <h2 className="text-2xl font-bold text-foreground">Student not found</h2>
+        <p className="text-foreground-muted mt-2">
           This student is not an active member of a classroom you teach.
         </p>
         <Link
@@ -118,9 +118,9 @@ export default function StudentDetails() {
 
   if (error || !data) {
     return (
-      <div className="bg-white border border-red-200 rounded-lg p-6" role="alert">
-        <h2 className="text-lg font-semibold text-gray-900">Summary could not be loaded</h2>
-        <p className="text-sm text-gray-600 mt-2">{error}</p>
+      <div className="bg-surface border border-red-200 rounded-lg p-6" role="alert">
+        <h2 className="text-lg font-semibold text-foreground">Summary could not be loaded</h2>
+        <p className="text-sm text-foreground-muted mt-2">{error}</p>
       </div>
     );
   }
@@ -132,21 +132,21 @@ export default function StudentDetails() {
       <div className="flex items-center gap-4">
         <Link
           href={`/teacher/classrooms/${student.classroomId}`}
-          className="text-gray-500 hover:text-gray-900"
+          className="text-foreground-muted hover:text-foreground"
         >
           &larr; Back
         </Link>
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">
+          <h1 className="text-3xl font-bold text-foreground">
             {student.displayName ?? 'Student'}
           </h1>
-          <p className="text-sm text-gray-500">{student.classroomName}</p>
+          <p className="text-sm text-foreground-muted">{student.classroomName}</p>
         </div>
       </div>
 
       {summary === null ? (
-        <div className="bg-white p-8 rounded-lg border border-gray-200 shadow-sm">
-          <p className="text-gray-600">
+        <div className="bg-surface p-8 rounded-lg border border-border shadow-sm">
+          <p className="text-foreground-muted">
             This student has not yet produced any learning evidence in this classroom.
           </p>
         </div>
@@ -192,7 +192,7 @@ export default function StudentDetails() {
           </div>
 
           {summary.flags.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-6">
+            <div className="bg-background border border-amber-200 rounded-lg p-6">
               <h2 className="text-sm font-semibold text-amber-900">Worth a closer look</h2>
               <ul className="mt-2 space-y-1">
                 {summary.flags.map((flag) => (
@@ -207,16 +207,16 @@ export default function StudentDetails() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-            <h2 className="text-lg font-semibold text-gray-900">Recent sessions</h2>
-            <p className="text-xs text-gray-500 mt-1">
+        <div className="lg:col-span-2 bg-surface rounded-lg border border-border shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-border bg-background">
+            <h2 className="text-lg font-semibold text-foreground">Recent sessions</h2>
+            <p className="text-xs text-foreground-muted mt-1">
               Evidence of how each session went. Conversations are private to the student and
               are not shown here.
             </p>
           </div>
           {sessions.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 text-sm">
+            <div className="p-8 text-center text-foreground-muted text-sm">
               <p>No sessions yet.</p>
             </div>
           ) : (
@@ -225,10 +225,10 @@ export default function StudentDetails() {
                 <li key={session.sessionId} className="px-6 py-4">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="font-medium text-gray-900">
+                      <p className="font-medium text-foreground">
                         {session.topic ?? session.subject ?? 'Learning session'}
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-xs text-foreground-muted mt-1">
                         {session.occurredAt
                           ? new Date(session.occurredAt).toLocaleDateString()
                           : 'Date unknown'}{' '}
@@ -237,18 +237,18 @@ export default function StudentDetails() {
                     </div>
                     <div className="text-right text-sm shrink-0">
                       {session.excludedForSystemError ? (
-                        <p className="text-gray-500">Excluded: system error</p>
+                        <p className="text-foreground-muted">Excluded: system error</p>
                       ) : session.suppressed || session.score === null ? (
-                        <p className="text-gray-500">Not enough evidence yet</p>
+                        <p className="text-foreground-muted">Not enough evidence yet</p>
                       ) : (
-                        <p className="font-medium text-gray-900">{session.score}</p>
+                        <p className="font-medium text-foreground">{session.score}</p>
                       )}
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-xs text-foreground-muted mt-1">
                         {session.highestHintUsed === null
                           ? 'Hint level not recorded'
                           : `Highest hint level ${session.highestHintUsed}`}
                       </p>
-                      <p className="text-xs text-gray-500 capitalize">
+                      <p className="text-xs text-foreground-muted capitalize">
                         {formatOutcome(session.transferOutcome)}
                       </p>
                     </div>
@@ -260,16 +260,16 @@ export default function StudentDetails() {
         </div>
 
         <div className="space-y-6">
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-            <h2 className="text-lg font-semibold text-gray-900">Topic mastery</h2>
+          <div className="bg-surface rounded-lg border border-border shadow-sm p-6">
+            <h2 className="text-lg font-semibold text-foreground">Topic mastery</h2>
             {topicMastery.length === 0 ? (
-              <p className="text-sm text-gray-500 mt-2">No topic evidence yet.</p>
+              <p className="text-sm text-foreground-muted mt-2">No topic evidence yet.</p>
             ) : (
               <ul className="mt-3 space-y-3">
                 {topicMastery.map((topic) => (
                   <li key={`${topic.subject}-${topic.topic}`}>
-                    <p className="text-sm font-medium text-gray-900">{topic.topic}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-sm font-medium text-foreground">{topic.topic}</p>
+                    <p className="text-xs text-foreground-muted">
                       Guided {Math.round(topic.guidedAccuracy * 100)}% &middot; Independent{' '}
                       {Math.round(topic.independentAccuracy * 100)}%
                     </p>
@@ -282,18 +282,18 @@ export default function StudentDetails() {
             )}
           </div>
 
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-            <h2 className="text-lg font-semibold text-gray-900">Common error categories</h2>
+          <div className="bg-surface rounded-lg border border-border shadow-sm p-6">
+            <h2 className="text-lg font-semibold text-foreground">Common error categories</h2>
             {commonErrorCategories.length === 0 ? (
-              <p className="text-sm text-gray-500 mt-2">No error categories recorded yet.</p>
+              <p className="text-sm text-foreground-muted mt-2">No error categories recorded yet.</p>
             ) : (
               <ul className="mt-3 space-y-2">
                 {commonErrorCategories.map((entry) => (
                   <li key={entry.category} className="flex justify-between text-sm">
-                    <span className="text-gray-700 capitalize">
+                    <span className="text-foreground-muted capitalize">
                       {entry.category.replace(/_/g, ' ')}
                     </span>
-                    <span className="text-gray-500">{entry.count}</span>
+                    <span className="text-foreground-muted">{entry.count}</span>
                   </li>
                 ))}
               </ul>

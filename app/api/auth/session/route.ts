@@ -31,15 +31,10 @@ export async function POST(req: NextRequest) {
     await adminAuth.verifyIdToken(idToken);
 
     let cookieValue: string;
-
     if (useEmulators) {
-      // Emulator auth does not support createSessionCookie.  Mint a bypass token
-      // that requireRole still verifies via verifySessionCookie.
-      cookieValue = await adminAuth.createCustomToken(idToken);
+      cookieValue = idToken;
     } else {
-      cookieValue = await adminAuth.createSessionCookie(idToken, {
-        expiresIn: SESSION_COOKIE_MAX_AGE_MS,
-      });
+      cookieValue = await adminAuth.createSessionCookie(idToken, { expiresIn: SESSION_COOKIE_MAX_AGE_MS });
     }
 
     const response = NextResponse.json({ status: 'ok' });
@@ -48,8 +43,8 @@ export async function POST(req: NextRequest) {
       value: cookieValue,
       maxAge: SESSION_COOKIE_MAX_AGE_MS / 1000,
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: true,
+      sameSite: 'none',
       path: '/',
     });
     return response;
@@ -68,8 +63,8 @@ export async function DELETE() {
     value: '',
     maxAge: 0,
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: true,
+    sameSite: 'none',
     path: '/',
   });
   return response;

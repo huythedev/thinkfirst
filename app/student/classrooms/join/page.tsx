@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/components/providers/AuthProvider';
+import { useTranslation } from '@/lib/i18n/client';
 
 /**
  * Classroom join flow.
@@ -19,6 +20,7 @@ import { useAuth } from '@/components/providers/AuthProvider';
 export default function JoinClassroomPage() {
   const router = useRouter();
   const { user } = useAuth();
+  const { t } = useTranslation();
 
   const [code, setCode] = useState('');
   const [status, setStatus] = useState<'idle' | 'joining'>('idle');
@@ -31,7 +33,7 @@ export default function JoinClassroomPage() {
     if (!user) return;
 
     if (normalizedCode.length === 0) {
-      setError('Enter the join code your teacher gave you.');
+      setError(t('joinClassroom.emptyError'));
       return;
     }
 
@@ -43,14 +45,13 @@ export default function JoinClassroomPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${await user.getIdToken()}`,
         },
         body: JSON.stringify({ code: normalizedCode }),
       });
 
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
-        setError(typeof result.error === 'string' ? result.error : 'Could not join the classroom. Please try again.');
+        setError(typeof result.error === 'string' ? result.error : t('joinClassroom.error'));
         setStatus('idle');
         return;
       }
@@ -58,22 +59,22 @@ export default function JoinClassroomPage() {
       router.push('/student');
     } catch (err) {
       console.error('Failed to join classroom', err);
-      setError('Could not join the classroom. Please try again.');
+      setError(t('joinClassroom.error'));
       setStatus('idle');
     }
   };
 
   return (
-    <div className="max-w-md mx-auto bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+    <div className="max-w-md mx-auto bg-surface rounded-2xl shadow-sm border border-border p-8">
       <div className="flex items-center gap-4 mb-6">
-        <Link href="/student" className="text-gray-500 hover:text-gray-900">
-          &larr; Back
+        <Link href="/student" className="text-foreground-muted hover:text-foreground">
+          &larr; {t('joinClassroom.back')}
         </Link>
-        <h1 className="text-2xl font-bold text-gray-900">Join a classroom</h1>
+        <h1 className="text-2xl font-bold text-foreground">{t('joinClassroom.title')}</h1>
       </div>
 
-      <p className="text-gray-600 mb-6">
-        Enter the code your teacher shared with you.
+      <p className="text-foreground-muted mb-6">
+        {t('joinClassroom.desc')}
       </p>
 
       {error && (
@@ -84,8 +85,8 @@ export default function JoinClassroomPage() {
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
-          <label htmlFor="join-code" className="block text-sm font-medium text-gray-700 mb-2">
-            Join code
+          <label htmlFor="join-code" className="block text-sm font-medium text-foreground-muted mb-2">
+            {t('joinClassroom.codeLabel')}
           </label>
           <input
             id="join-code"
@@ -94,8 +95,8 @@ export default function JoinClassroomPage() {
             autoComplete="off"
             autoCapitalize="characters"
             spellCheck={false}
-            placeholder="ABC123"
-            className="w-full p-3 border border-gray-300 rounded-xl font-mono tracking-widest uppercase outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder={t('joinClassroom.codePlaceholder')}
+            className="w-full p-3 border border-border rounded-xl font-mono tracking-widest uppercase outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
 
@@ -104,7 +105,7 @@ export default function JoinClassroomPage() {
           disabled={status === 'joining' || normalizedCode.length === 0}
           className="w-full px-6 py-3 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700 disabled:opacity-50"
         >
-          {status === 'joining' ? 'Joining...' : 'Join classroom'}
+          {status === 'joining' ? t('joinClassroom.joining') : t('joinClassroom.joinBtn')}
         </button>
       </form>
     </div>

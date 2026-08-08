@@ -1,4 +1,4 @@
-﻿
+
     Γ£ô   1 [chromium] ΓÇ║ tests\e2e\responsive.spec.ts:21:7 ΓÇ║ responsive 
 and accessibility basics ΓÇ║ the sign-in page does not overflow horizontally 
 at either size (2.3s)

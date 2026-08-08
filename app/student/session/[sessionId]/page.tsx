@@ -11,10 +11,12 @@ import { useLiveSessionScore } from '@/hooks/use-live-session-score';
 import { HintLadderIndicator } from '@/components/HintLadderIndicator';
 import { Scratchpad } from '@/components/Scratchpad';
 import { SessionProblemImage } from '@/components/SessionProblemImage';
+import { useTranslation } from '@/lib/i18n/client';
 
 export default function LearningWorkspace() {
   const { sessionId } = useParams() as { sessionId: string };
   const { user, loading: authLoading } = useAuth();
+  const { t } = useTranslation();
   const router = useRouter();
   
   const [session, setSession] = useState<any>(null);
@@ -95,8 +97,8 @@ export default function LearningWorkspace() {
       const studentTurnData = {
         sessionId,
         studentId: user.uid,
-        role: 'student' as const,
-        message: userMsg,
+        actor: 'student' as const,
+        content: userMsg,
         sequence: newSequence,
         createdAt: new Date(),
       };
@@ -105,11 +107,10 @@ export default function LearningWorkspace() {
       // Only the session id and the student's message cross this boundary. Every
       // policy input is read server-side, and the transcript is read from
       // Firestore, so neither is sent from here.
-      const res = await fetch('/api/session/chat', {
+      const res = await fetch(window.location.origin + '/api/session/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${await user.getIdToken()}`,
         },
         body: JSON.stringify({ message: userMsg, sessionId }),
       });
@@ -172,7 +173,7 @@ export default function LearningWorkspace() {
       });
       return updateDoc(sessionDocRef, { scratchpad: value });
     },
-    [sessionId, user?.uid, session?.studentId],
+    [sessionId, user?.uid, session],
   );
 
   // The server-side guard let this route render, so the cookie is valid, but the
@@ -190,15 +191,15 @@ export default function LearningWorkspace() {
         aria-live="polite"
       >
         <span className="sr-only">Loading workspace</span>
-        <div className="md:w-1/3 bg-white border border-gray-200 rounded-2xl p-6 animate-pulse space-y-3">
-          <div className="h-4 w-24 bg-gray-100 rounded" />
-          <div className="h-3 w-full bg-gray-100 rounded" />
-          <div className="h-3 w-5/6 bg-gray-100 rounded" />
+        <div className="md:w-1/3 bg-surface border border-border rounded-2xl p-6 animate-pulse space-y-3">
+          <div className="h-4 w-24 bg-surface-muted rounded" />
+          <div className="h-3 w-full bg-surface-muted rounded" />
+          <div className="h-3 w-5/6 bg-surface-muted rounded" />
         </div>
-        <div className="md:w-2/3 bg-white border border-gray-200 rounded-2xl p-6 animate-pulse space-y-4">
-          <div className="h-16 w-2/3 bg-gray-100 rounded-2xl" />
-          <div className="h-16 w-1/2 bg-gray-100 rounded-2xl ml-auto" />
-          <div className="h-16 w-3/5 bg-gray-100 rounded-2xl" />
+        <div className="md:w-2/3 bg-surface border border-border rounded-2xl p-6 animate-pulse space-y-4">
+          <div className="h-16 w-2/3 bg-surface-muted rounded-2xl" />
+          <div className="h-16 w-1/2 bg-surface-muted rounded-2xl ml-auto" />
+          <div className="h-16 w-3/5 bg-surface-muted rounded-2xl" />
         </div>
       </div>
     );
@@ -206,9 +207,9 @@ export default function LearningWorkspace() {
 
   if (workspaceError || !session) {
     return (
-      <div className="max-w-lg mx-auto mt-16 bg-white border border-gray-200 rounded-2xl p-8 text-center shadow-sm">
-        <h1 className="text-xl font-bold text-gray-900">This session could not be opened</h1>
-        <p className="text-gray-600 mt-2">{workspaceError ?? 'The session is unavailable.'}</p>
+      <div className="max-w-lg mx-auto mt-16 bg-surface border border-border rounded-2xl p-8 text-center shadow-sm">
+        <h1 className="text-xl font-bold text-foreground">This session could not be opened</h1>
+        <p className="text-foreground-muted mt-2">{workspaceError ?? 'The session is unavailable.'}</p>
         <button
           onClick={() => router.push('/student/session')}
           className="mt-6 px-6 py-3 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700"
@@ -233,7 +234,7 @@ export default function LearningWorkspace() {
       />
 
       {/* Mobile: the problem and scratchpad are tabs, per the section 31 layout. */}
-      <div className="flex md:hidden gap-1 bg-gray-100 p-1 rounded-xl" role="tablist" aria-label="Workspace panels">
+      <div className="flex md:hidden gap-1 bg-surface-muted p-1 rounded-xl" role="tablist" aria-label="Workspace panels">
         {(['problem', 'chat', 'scratchpad'] as const).map((panel) => (
           <button
             key={panel}
@@ -241,7 +242,7 @@ export default function LearningWorkspace() {
             aria-selected={mobilePanel === panel}
             onClick={() => setMobilePanel(panel)}
             className={`flex-1 text-sm font-medium capitalize py-2 rounded-lg ${
-              mobilePanel === panel ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600'
+              mobilePanel === panel ? 'bg-surface text-blue-700 shadow-sm' : 'text-foreground-muted'
             }`}
           >
             {panel}
@@ -257,14 +258,14 @@ export default function LearningWorkspace() {
         }`}
       >
         <div
-          className={`bg-white border border-gray-200 rounded-2xl flex flex-col overflow-hidden shadow-sm flex-1 min-h-0 ${
+          className={`bg-surface border border-border rounded-2xl flex flex-col overflow-hidden shadow-sm flex-1 min-h-0 ${
             mobilePanel === 'scratchpad' ? 'hidden md:flex' : 'flex'
           }`}
         >
-          <div className="bg-gray-50 border-b border-gray-200 p-4">
-            <h2 className="font-bold text-gray-800">Problem</h2>
+          <div className="bg-background border-b border-border p-4">
+            <h2 className="font-bold text-foreground">{t('activeSession.problem')}</h2>
           </div>
-          <div className="p-6 overflow-y-auto font-mono text-gray-900 whitespace-pre-wrap flex-1">
+          <div className="p-6 overflow-y-auto font-mono text-foreground whitespace-pre-wrap flex-1">
             {session.originalProblem}
           </div>
           {typeof session.imageId === 'string' && session.imageId.length > 0 && (
@@ -283,7 +284,7 @@ export default function LearningWorkspace() {
 
       {/* Right Panel: Chat Interface */}
       <div
-        className={`md:w-2/3 bg-white border border-gray-200 rounded-2xl md:flex flex-col overflow-hidden shadow-sm min-h-0 ${
+        className={`md:w-2/3 bg-surface border border-border rounded-2xl md:flex flex-col overflow-hidden shadow-sm min-h-0 ${
           mobilePanel === 'chat' ? 'flex flex-1' : 'hidden'
         }`}
       >
@@ -299,7 +300,7 @@ export default function LearningWorkspace() {
           lang={session?.language === 'vi' ? 'vi' : 'en'}
         >
           {turns.length === 0 && (
-            <div className="text-center text-gray-500 mt-10">
+            <div className="text-center text-foreground-muted mt-10">
               <p>Session started.</p>
               <p className="text-sm mt-2">How would you like to begin solving this?</p>
             </div>
@@ -323,8 +324,8 @@ export default function LearningWorkspace() {
                     turn.actor === 'student'
                       ? 'bg-blue-600 text-white rounded-br-none'
                       : isSupport
-                        ? 'bg-amber-50 border border-amber-300 text-amber-950 rounded-bl-none'
-                        : 'bg-gray-100 text-gray-900 rounded-bl-none'
+                        ? 'bg-background border border-amber-300 text-amber-950 rounded-bl-none'
+                        : 'bg-surface-muted text-foreground rounded-bl-none'
                   }`}
                   // Announced immediately: this is the one message a student must
                   // not miss, and a screen reader would otherwise reach it only on
@@ -359,7 +360,7 @@ export default function LearningWorkspace() {
 
           {sending && (
             <div className="flex justify-start">
-              <div className="max-w-[85%] rounded-2xl p-4 bg-gray-100 text-gray-900 rounded-bl-none flex items-center gap-2">
+              <div className="max-w-[85%] rounded-2xl p-4 bg-surface-muted text-foreground rounded-bl-none flex items-center gap-2">
                 <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
                 <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></span>
                 <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></span>
@@ -371,7 +372,7 @@ export default function LearningWorkspace() {
         
         <LiveScorePanel score={liveScore} />
 
-        <div className="p-4 bg-gray-50 border-t border-gray-200">
+        <div className="p-4 bg-background border-t border-border">
           {sendError && (
             <div role="alert" className="mb-3 flex items-start justify-between gap-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">
               <span>{sendError}</span>
@@ -379,7 +380,7 @@ export default function LearningWorkspace() {
                 onClick={() => setSendError(null)}
                 className="font-medium underline shrink-0"
               >
-                Dismiss
+                {t('activeSession.dismiss', { defaultValue: 'Dismiss' })}
               </button>
             </div>
           )}
@@ -388,9 +389,9 @@ export default function LearningWorkspace() {
               value={message}
               onChange={e => setMessage(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Explain your step or ask a question..."
+              placeholder={t('activeSession.composerPlaceholder')}
               aria-label="Your message to the tutor"
-              className="flex-1 p-4 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 resize-none font-sans"
+              className="flex-1 p-4 border border-border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 resize-none font-sans"
               rows={2}
             />
             <button
@@ -398,16 +399,16 @@ export default function LearningWorkspace() {
               disabled={sending || !message.trim()}
               className="px-6 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 disabled:opacity-50"
             >
-              Send
+              {t('activeSession.send')}
             </button>
           </div>
           <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
-            <button onClick={() => setMessage("Check my step: ")} className="text-xs bg-white border border-gray-300 px-3 py-1.5 rounded-full hover:bg-gray-100 whitespace-nowrap">Check my step</button>
-            <button onClick={() => setMessage("I'm stuck.")} className="text-xs bg-white border border-gray-300 px-3 py-1.5 rounded-full hover:bg-gray-100 whitespace-nowrap">I&apos;m stuck</button>
-            <button onClick={() => setMessage("Can you explain the concept?")} className="text-xs bg-white border border-gray-300 px-3 py-1.5 rounded-full hover:bg-gray-100 whitespace-nowrap">Explain concept</button>
-            <button onClick={() => setMessage("Can you give me a smaller hint?")} className="text-xs bg-white border border-gray-300 px-3 py-1.5 rounded-full hover:bg-gray-100 whitespace-nowrap">Smaller hint</button>
-            <button onClick={() => setMessage("Can you explain that differently?")} className="text-xs bg-white border border-gray-300 px-3 py-1.5 rounded-full hover:bg-gray-100 whitespace-nowrap">Explain differently</button>
-            <button onClick={() => setMessage("I think the tutor may be wrong here, because ")} className="text-xs bg-white border border-gray-300 px-3 py-1.5 rounded-full hover:bg-gray-100 whitespace-nowrap">Report an issue</button>
+            <button onClick={() => setMessage(t("sessionActions.checkStep") + ": ")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted whitespace-nowrap">{t('sessionActions.checkStep')}</button>
+            <button onClick={() => setMessage(t("sessionActions.stuck") + ".")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted whitespace-nowrap">{t('sessionActions.stuck')}</button>
+            <button onClick={() => setMessage(t("sessionActions.explainConcept") + "?")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted whitespace-nowrap">{t('sessionActions.explainConcept')}</button>
+            <button onClick={() => setMessage(t("sessionActions.smallerHint") + "?")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted whitespace-nowrap">{t('sessionActions.smallerHint')}</button>
+            <button onClick={() => setMessage(t("sessionActions.explainDifferently") + "?")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted whitespace-nowrap">{t('sessionActions.explainDifferently')}</button>
+            <button onClick={() => setMessage(t("sessionActions.reportIssue") + ", ")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted whitespace-nowrap">{t('sessionActions.reportIssue')}</button>
           </div>
         </div>
       </div>

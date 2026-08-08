@@ -16,10 +16,10 @@ export default function Error({
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[calc(100vh-64px)] p-4 text-center">
-      <h2 className="text-3xl font-bold tracking-tight text-gray-900 mb-2">Something went wrong!</h2>
+      <h2 className="text-3xl font-bold tracking-tight text-foreground mb-2">Something went wrong!</h2>
       {/* The raw message can carry configuration or query detail, so it stays in
           the console and the user gets a stable, non-revealing string. */}
-      <p className="text-gray-500 mb-6">
+      <p className="text-foreground-muted mb-6">
         An unexpected error occurred. You can try again, or go back and start over.
       </p>
       {error.digest && (
@@ -34,7 +34,7 @@ export default function Error({
         </button>
         <Link
           href="/"
-          className="px-4 py-2 bg-white text-gray-700 border border-gray-300 font-medium rounded-lg hover:bg-gray-50 transition-colors"
+          className="px-4 py-2 bg-surface text-foreground-muted border border-border font-medium rounded-lg hover:bg-background transition-colors"
         >
           Return Home
         </Link>

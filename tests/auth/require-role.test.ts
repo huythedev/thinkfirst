@@ -69,7 +69,7 @@ describe('requireRole denies before rendering', () => {
   it('denies a student who requests the teacher area', async () => {
     getServerSession.mockResolvedValue({
       status: 'valid',
-      session: { uid: 'student-a', role: 'student', displayName: 'Student A' },
+      session: { uid: 'student-a', role: 'student', displayName: 'Student A', preferredLanguage: 'en' },
     });
     expect(await redirectTargetFor('teacher')).toBe('/student');
   });
@@ -77,7 +77,7 @@ describe('requireRole denies before rendering', () => {
   it('denies a teacher who requests the student area', async () => {
     getServerSession.mockResolvedValue({
       status: 'valid',
-      session: { uid: 'teacher-a', role: 'teacher', displayName: 'Teacher A' },
+      session: { uid: 'teacher-a', role: 'teacher', displayName: 'Teacher A', preferredLanguage: 'en' },
     });
     expect(await redirectTargetFor('student')).toBe('/teacher');
   });
@@ -85,7 +85,7 @@ describe('requireRole denies before rendering', () => {
   it('denies an admin, who holds neither the student nor the teacher role', async () => {
     getServerSession.mockResolvedValue({
       status: 'valid',
-      session: { uid: 'admin-a', role: 'admin', displayName: 'Admin' },
+      session: { uid: 'admin-a', role: 'admin', displayName: 'Admin', preferredLanguage: 'en' },
     });
     expect(await redirectTargetFor('student')).toBe('/student');
   });
@@ -95,7 +95,7 @@ describe('requireRole denies before rendering', () => {
     // as null and must not be treated as the requested role.
     getServerSession.mockResolvedValue({
       status: 'valid',
-      session: { uid: 'new-user', role: null, displayName: null },
+      session: { uid: 'new-user', role: null, displayName: null, preferredLanguage: 'en' },
     });
     expect(await redirectTargetFor('student')).toBe('/onboarding');
     expect(await redirectTargetFor('teacher')).toBe('/onboarding');
@@ -106,19 +106,20 @@ describe('requireRole admits the matching role', () => {
   it('returns the session for a student in the student area', async () => {
     getServerSession.mockResolvedValue({
       status: 'valid',
-      session: { uid: 'student-a', role: 'student', displayName: 'Student A' },
+      session: { uid: 'student-a', role: 'student', displayName: 'Student A', preferredLanguage: 'en' },
     });
     await expect(requireRole('student')).resolves.toEqual({
       uid: 'student-a',
       role: 'student',
       displayName: 'Student A',
+      preferredLanguage: 'en'
     });
   });
 
   it('returns the session for a teacher in the teacher area', async () => {
     getServerSession.mockResolvedValue({
       status: 'valid',
-      session: { uid: 'teacher-a', role: 'teacher', displayName: 'Teacher A' },
+      session: { uid: 'teacher-a', role: 'teacher', displayName: 'Teacher A', preferredLanguage: 'en' },
     });
     await expect(requireRole('teacher')).resolves.toMatchObject({ role: 'teacher' });
   });

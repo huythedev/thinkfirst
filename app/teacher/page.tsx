@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { MetricCard, CoverageNote } from '@/components/teacher/MetricCard';
 import { useTeacherApi, type ObservedMetricValue } from '@/hooks/use-teacher-api';
+import { useTranslation } from '@/lib/i18n/client';
 
 /**
  * The teacher dashboard.
@@ -59,6 +60,7 @@ interface OverviewResponse {
 
 export default function TeacherDashboard() {
   const { data, loading, error, reload } = useTeacherApi<OverviewResponse>('/api/teacher/overview');
+  const { t } = useTranslation();
 
   if (loading) {
     return (
@@ -71,14 +73,14 @@ export default function TeacherDashboard() {
 
   if (error) {
     return (
-      <div className="bg-white border border-red-200 rounded-lg p-6" role="alert">
-        <h2 className="text-lg font-semibold text-gray-900">Dashboard could not be loaded</h2>
-        <p className="text-sm text-gray-600 mt-2">{error}</p>
+      <div className="bg-surface border border-red-200 rounded-lg p-6" role="alert">
+        <h2 className="text-lg font-semibold text-foreground">{t('teacher.dashboardLoadError')}</h2>
+        <p className="text-sm text-foreground-muted mt-2">{error}</p>
         <button
           onClick={reload}
           className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
         >
-          Try again
+          {t('teacher.tryAgain')}
         </button>
       </div>
     );
@@ -91,62 +93,61 @@ export default function TeacherDashboard() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500 mt-2">
-          Across {totals.classroomCount} {totals.classroomCount === 1 ? 'classroom' : 'classrooms'}{' '}
-          and {totals.studentCount} {totals.studentCount === 1 ? 'student' : 'students'}.
+        <h1 className="text-3xl font-bold text-foreground">{t('common.dashboard')}</h1>
+        <p className="text-foreground-muted mt-2">
+          {t('teacher.dashboardDesc', { classCount: totals.classroomCount, studentCount: totals.studentCount })}
         </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
-          label="Active students"
+          label={t('teacher.activeStudents')}
           metric={totals.activeStudentsThisWeek}
           format="count"
-          caption="In the last 7 days"
-          help="Students who started or completed at least one learning session in the last seven days."
+          caption={t('teacher.activeStudentsCaption')}
+          help={t('teacher.activeStudentsHelp')}
         />
         <MetricCard
-          label="Sessions completed"
+          label={t('teacher.sessionsCompleted')}
           metric={totals.sessionsCompletedThisWeek}
           format="count"
-          caption={`${totals.sessionsCompletedTotal} in total`}
-          help="Learning sessions marked completed in the last seven days."
+          caption={t('teacher.sessionsCompletedCaption', { total: totals.sessionsCompletedTotal })}
+          help={t('teacher.sessionsCompletedHelp')}
         />
         <MetricCard
-          label="Attempt before help"
+          label={t('teacher.attemptBeforeHelp')}
           metric={totals.attemptBeforeHelpRate}
           format="percent"
-          help="How often a student made a genuine attempt before asking for help. Sessions where this was not instrumented are excluded rather than counted as no attempt."
+          help={t('teacher.attemptBeforeHelpHelp')}
         />
         <MetricCard
-          label="Transfer success"
+          label={t('teacher.transferSuccess')}
           metric={totals.transferSuccessRate}
           format="percent"
-          help="Transfer success measures performance on a similar problem after guided assistance. It is not an official grade."
+          help={t('teacher.transferSuccessHelp')}
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-              <h2 className="text-lg font-semibold text-gray-900">Your classrooms</h2>
+          <div className="bg-surface rounded-lg border border-border shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-border flex justify-between items-center bg-background">
+              <h2 className="text-lg font-semibold text-foreground">{t('teacher.yourClassrooms')}</h2>
               <Link
                 href="/teacher/classrooms"
                 className="text-sm text-blue-600 hover:text-blue-800 font-medium"
               >
-                View all
+                {t('teacher.viewAll')}
               </Link>
             </div>
             {classrooms.length === 0 ? (
-              <div className="p-12 text-center text-gray-500">
-                <p className="mb-4">You have not created any classrooms yet.</p>
+              <div className="p-12 text-center text-foreground-muted">
+                <p className="mb-4">{t('teacher.noClassrooms')}</p>
                 <Link
                   href="/teacher/classrooms/new"
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 inline-block"
                 >
-                  Create classroom
+                  {t('teacher.createClassroom')}
                 </Link>
               </div>
             ) : (
@@ -155,20 +156,20 @@ export default function TeacherDashboard() {
                   <li key={classroom.id}>
                     <Link
                       href={`/teacher/classrooms/${classroom.id}`}
-                      className="block hover:bg-gray-50 p-6"
+                      className="block hover:bg-background p-6"
                     >
                       <div className="flex items-center justify-between gap-4">
                         <div>
                           <p className="text-lg font-medium text-blue-600">{classroom.name}</p>
-                          <p className="text-sm text-gray-500 mt-1">
+                          <p className="text-sm text-foreground-muted mt-1">
                             Grade {classroom.grade} &middot; {classroom.subject} &middot;{' '}
                             {classroom.memberCount}{' '}
                             {classroom.memberCount === 1 ? 'student' : 'students'}
                           </p>
                         </div>
                         <div className="text-right shrink-0">
-                          <p className="text-sm text-gray-500">Active this week</p>
-                          <p className="text-xl font-semibold text-gray-900">
+                          <p className="text-sm text-foreground-muted">{t('teacher.activeThisWeek')}</p>
+                          <p className="text-xl font-semibold text-foreground">
                             {classroom.activeStudentsThisWeek}
                           </p>
                         </div>
@@ -180,13 +181,13 @@ export default function TeacherDashboard() {
             )}
           </div>
 
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-              <h2 className="text-lg font-semibold text-gray-900">Topics needing review</h2>
+          <div className="bg-surface rounded-lg border border-border shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-border bg-background">
+              <h2 className="text-lg font-semibold text-foreground">{t('teacher.topicsReview')}</h2>
             </div>
             {topicsNeedingReview.length === 0 ? (
-              <div className="p-8 text-center text-gray-500 text-sm">
-                <p>No topic currently shows a wide gap between guided and independent work.</p>
+              <div className="p-8 text-center text-foreground-muted text-sm">
+                <p>{t('teacher.noTopicsReview')}</p>
               </div>
             ) : (
               <ul className="divide-y divide-gray-200">
@@ -194,15 +195,15 @@ export default function TeacherDashboard() {
                   <li key={`${topic.classroomId}-${topic.subject}-${topic.topic}`} className="p-6">
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <p className="font-medium text-gray-900">{topic.topic}</p>
-                        <p className="text-sm text-gray-500 mt-1">
+                        <p className="font-medium text-foreground">{topic.topic}</p>
+                        <p className="text-sm text-foreground-muted mt-1">
                           {topic.classroomName} &middot; {topic.subject} &middot;{' '}
                           {topic.studentCount}{' '}
                           {topic.studentCount === 1 ? 'student' : 'students'}
                         </p>
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="text-sm text-gray-500">Guided minus independent</p>
+                        <p className="text-sm text-foreground-muted">{t('teacher.gapPoints')}</p>
                         <p className="text-lg font-semibold text-amber-700">
                           {Math.round(topic.gap * 100)} points
                         </p>
@@ -216,34 +217,31 @@ export default function TeacherDashboard() {
         </div>
 
         <div className="space-y-6">
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6 space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900">Class-wide evidence</h2>
+          <div className="bg-surface rounded-lg border border-border shadow-sm p-6 space-y-4">
+            <h2 className="text-lg font-semibold text-foreground">{t('teacher.classEvidence')}</h2>
             <div>
-              <p className="text-sm text-gray-500">Average highest hint level</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm text-foreground-muted">{t('teacher.avgHintLevel')}</p>
+              <p className="text-2xl font-bold text-foreground">
                 {totals.averageHintLevel.value === null
-                  ? 'Not yet measured'
+                  ? t('teacher.notMeasured')
                   : totals.averageHintLevel.value.toFixed(1)}
               </p>
-              <p className="text-xs text-gray-500 mt-1">
-                On the 0 to 7 hint ladder. A higher number means students needed more guidance
-                to reach an answer.
+              <p className="text-xs text-foreground-muted mt-1">
+                {t('teacher.avgHintLevelDesc')}
               </p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">AI answers reported as incorrect</p>
-              <p className="text-2xl font-bold text-gray-900">{totals.openReportCount}</p>
-              <p className="text-xs text-gray-500 mt-1">Open reports awaiting review.</p>
+              <p className="text-sm text-foreground-muted">{t('teacher.reportedIssues')}</p>
+              <p className="text-2xl font-bold text-foreground">{totals.openReportCount}</p>
+              <p className="text-xs text-foreground-muted mt-1">{t('teacher.reportedIssuesDesc')}</p>
             </div>
             <CoverageNote coverage={totals.evidenceCoverage} />
           </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-            <h2 className="text-sm font-semibold text-blue-900">How to read these numbers</h2>
+            <h2 className="text-sm font-semibold text-blue-900">{t('teacher.howToRead')}</h2>
             <p className="text-sm text-blue-800 mt-2">
-              These figures describe learning behavior, not achievement. They are not grades,
-              and a low number is a prompt to look closer rather than a judgment about a
-              student.
+              {t('teacher.howToReadDesc')}
             </p>
           </div>
         </div>

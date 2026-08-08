@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User as FirebaseUser, onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
+import { User as FirebaseUser, onIdTokenChanged, signOut as firebaseSignOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase/config';
 import { User, Role } from '@/lib/types/user';
@@ -34,7 +34,7 @@ export const useAuth = () => useContext(AuthContext);
 async function establishServerSession(firebaseUser: FirebaseUser): Promise<void> {
   try {
     const idToken = await firebaseUser.getIdToken();
-    await fetch('/api/auth/session', {
+    await fetch(window.location.origin + '/api/auth/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken }),
@@ -46,7 +46,7 @@ async function establishServerSession(firebaseUser: FirebaseUser): Promise<void>
 
 async function clearServerSession(): Promise<void> {
   try {
-    await fetch('/api/auth/session', { method: 'DELETE' });
+    await fetch(window.location.origin + '/api/auth/session', { method: 'DELETE' });
   } catch (error) {
     console.error('Could not clear the server session.', error);
   }
@@ -88,7 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    const unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
         // The cookie must exist before any server-guarded route is requested.

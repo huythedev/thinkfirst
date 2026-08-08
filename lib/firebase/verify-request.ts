@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server';
-import { adminAuth } from '@/lib/firebase/admin';
+import { adminAuth, useEmulators } from '@/lib/firebase/admin';
+import { cookies } from 'next/headers';
+import { SESSION_COOKIE_NAME } from '@/lib/firebase/server-session';
 
 export interface AuthResult {
   uid: string | null;
@@ -20,34 +22,65 @@ function bearerToken(req: NextRequest): string | null {
 }
 
 /**
- * Verifies the caller's Firebase ID token.
+ * Verifies the caller's authentication.
  *
- * The Admin SDK needs Application Default Credentials or a service account. When
- * neither is present, verification cannot happen, and that is reported through
- * `verificationUnavailable` instead of being silently treated as a pass.
+ * It checks the bearer token first. If missing or invalid, it checks the session cookie.
  */
 export async function verifyRequest(req: NextRequest): Promise<AuthResult> {
   const token = bearerToken(req);
-  if (!token) {
+  let uid: string | null = null;
+  let verificationUnavailable = false;
+
+  if (token) {
+    try {
+      const decoded = await adminAuth.verifyIdToken(token);
+      uid = decoded.uid;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes('Could not load the default credentials') ||
+        message.includes('client_email') ||
+        message.includes('Unable to detect a Project Id') ||
+        message.includes('credential')
+      ) {
+        console.error('Cannot verify ID tokens: server credentials are not configured.', message);
+        verificationUnavailable = true;
+      }
+    }
+  }
+
+  if (!uid && !verificationUnavailable) {
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    
+    if (sessionCookie) {
+      try {
+        const decoded = useEmulators
+          ? await adminAuth.verifyIdToken(sessionCookie, true)
+          : await adminAuth.verifySessionCookie(sessionCookie, true);
+        uid = decoded.uid;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (
+          message.includes('Could not load the default credentials') ||
+          message.includes('client_email') ||
+          message.includes('Unable to detect a Project Id') ||
+          message.includes('credential')
+        ) {
+          console.error('Cannot verify session cookies: server credentials are not configured.', message);
+          verificationUnavailable = true;
+        }
+      }
+    }
+  }
+
+  if (verificationUnavailable) {
+    return { uid: null, missingToken: false, verificationUnavailable: true };
+  }
+
+  if (!uid) {
     return { uid: null, missingToken: true, verificationUnavailable: false };
   }
 
-  try {
-    const decoded = await adminAuth.verifyIdToken(token);
-    return { uid: decoded.uid, missingToken: false, verificationUnavailable: false };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const credentialProblem =
-      message.includes('Could not load the default credentials') ||
-      message.includes('client_email') ||
-      message.includes('Unable to detect a Project Id') ||
-      message.includes('credential');
-
-    if (credentialProblem) {
-      console.error('Cannot verify ID tokens: server credentials are not configured.', message);
-      return { uid: null, missingToken: false, verificationUnavailable: true };
-    }
-
-    return { uid: null, missingToken: false, verificationUnavailable: false };
-  }
+  return { uid, missingToken: false, verificationUnavailable: false };
 }

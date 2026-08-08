@@ -8,10 +8,13 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { Strictness } from '@/lib/types/user';
 import { AI_VERSIONS } from '@/lib/versions';
 import { ProblemImageUpload, type ExtractionOutcome } from '@/components/ProblemImageUpload';
+import { useTranslation } from '@/lib/i18n/client';
 
 export default function NewSession() {
   const router = useRouter();
   const { user, profile } = useAuth();
+  const { t } = useTranslation();
+
   
   const [subject, setSubject] = useState('mathematics');
   const [mode, setMode] = useState('practice');
@@ -54,12 +57,12 @@ export default function NewSession() {
     // enforcing half is policy rule R6, which refuses to tutor on an unconfirmed
     // low-confidence extraction even if this check were bypassed.
     if (imageAttached && !extraction) {
-      setError('Check and confirm the text from your image before starting.');
+      setError(t('newSession.errorImage'));
       return;
     }
 
     if (!problemText) {
-      setError('Please enter a problem, or upload a photo of one');
+      setError(t('newSession.errorEmpty'));
       return;
     }
     if (!user) return;
@@ -97,52 +100,52 @@ export default function NewSession() {
       router.push(`/student/session/${sessionRef.id}`);
     } catch (err: any) {
       console.error(err);
-      setError('Failed to start session');
+      setError(t('newSession.errorStart'));
       setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Start Learning Session</h1>
+    <div className="max-w-2xl mx-auto bg-surface rounded-2xl shadow-sm border border-border p-8">
+      <h1 className="text-2xl font-bold text-foreground mb-6">{t('newSession.title')}</h1>
       
       {error && <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-xl">{error}</div>}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Subject</label>
+          <label className="block text-sm font-medium text-foreground-muted mb-2">{t('newSession.subject')}</label>
           <select 
             value={subject}
             onChange={e => setSubject(e.target.value)}
-            className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full p-3 border border-border rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="mathematics">Mathematics</option>
-            <option value="science">Science</option>
+            <option value="mathematics">{t('newSession.math')}</option>
+            <option value="science">{t('newSession.science')}</option>
           </select>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Learning Mode</label>
+          <label className="block text-sm font-medium text-foreground-muted mb-2">{t('newSession.mode')}</label>
           <select 
             value={mode}
             onChange={e => setMode(e.target.value)}
-            className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full p-3 border border-border rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="learn">Learn (New Concept)</option>
-            <option value="practice">Practice (Guided)</option>
-            <option value="assignment">Assignment (Attempt Required)</option>
-            <option value="verify">Verify (Check AI)</option>
+            <option value="learn">{t('newSession.learn')}</option>
+            <option value="practice">{t('newSession.practice')}</option>
+            <option value="assignment">{t('newSession.assignment')}</option>
+            <option value="verify">{t('newSession.verify')}</option>
           </select>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">What problem are you working on?</label>
+          <label className="block text-sm font-medium text-foreground-muted mb-2">{t('newSession.problem')}</label>
           <textarea 
             value={problem}
             onChange={e => setProblem(e.target.value)}
             rows={5}
-            placeholder="e.g. Solve x² - 5x + 6 = 0"
-            className="w-full p-4 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 resize-none font-mono"
+            placeholder={t('newSession.problemPlaceholder')}
+            className="w-full p-4 border border-border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 resize-none font-mono"
           />
         </div>
 
@@ -159,7 +162,7 @@ export default function NewSession() {
           disabled={loading || (imageAttached && !extraction)}
           className="w-full py-4 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 disabled:opacity-50"
         >
-          {loading ? 'Starting...' : 'Start Session'}
+          {loading ? t('newSession.startingBtn') : t('newSession.startBtn')}
         </button>
       </form>
     </div>

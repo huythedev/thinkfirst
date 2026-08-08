@@ -51,11 +51,11 @@ export function MetricCard({ label, metric, format = 'number', help, caption }: 
   const observed = isObserved ? metric.observed : null;
 
   return (
-    <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+    <div className="bg-surface p-6 rounded-lg border border-border shadow-sm">
       <div className="flex items-start justify-between gap-2">
-        <h3 className="text-sm font-medium text-gray-500">{label}</h3>
+        <h3 className="text-sm font-medium text-foreground-muted">{label}</h3>
         <span
-          className="text-gray-400 cursor-help text-xs border border-gray-300 rounded-full w-4 h-4 flex items-center justify-center shrink-0"
+          className="text-gray-400 cursor-help text-xs border border-border rounded-full w-4 h-4 flex items-center justify-center shrink-0"
           title={help}
           aria-label={`About ${label}: ${help}`}
           role="img"
@@ -67,14 +67,14 @@ export function MetricCard({ label, metric, format = 'number', help, caption }: 
       {value === null ? (
         <>
           <p className="text-2xl font-semibold text-gray-400 mt-2">Not yet measured</p>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-foreground-muted mt-1">
             No sessions have produced this evidence yet.
           </p>
         </>
       ) : (
         <>
-          <p className="text-3xl font-bold text-gray-900 mt-2">{formatValue(value, format)}</p>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-3xl font-bold text-foreground mt-2">{formatValue(value, format)}</p>
+          <p className="text-sm text-foreground-muted mt-1">
             {caption ??
               (observed !== null
                 ? `Based on ${observed} observed ${observed === 1 ? 'session' : 'sessions'}`
@@ -94,7 +94,7 @@ export function MetricCard({ label, metric, format = 'number', help, caption }: 
 export function CoverageNote({ coverage }: { coverage: number }) {
   const percent = Math.round(coverage * 100);
   return (
-    <p className="text-sm text-gray-500">
+    <p className="text-sm text-foreground-muted">
       These figures rest on {percent}% evidence coverage. Behavior that was never
       instrumented is excluded from the numbers rather than counted as absent.
     </p>

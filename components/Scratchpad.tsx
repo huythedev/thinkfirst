@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from '@/lib/i18n/client';
 
 /** Matches the ceiling the security rule enforces on the field. */
 export const SCRATCHPAD_MAX_LENGTH = 20000;
@@ -29,6 +30,7 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'error';
  * remounts this component with the right notes.
  */
 export function Scratchpad({ initialValue, onSave }: ScratchpadProps) {
+  const { t } = useTranslation();
   const [value, setValue] = useState(initialValue);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -73,25 +75,25 @@ export function Scratchpad({ initialValue, onSave }: ScratchpadProps) {
 
   const statusText =
     saveState === 'saving'
-      ? 'Saving...'
+      ? t('activeSession.saving', { defaultValue: 'Saving...' })
       : saveState === 'saved'
-        ? 'Saved'
+        ? t('activeSession.saved', { defaultValue: 'Saved' })
         : saveState === 'error'
-          ? 'Not saved'
+          ? t('activeSession.notSaved', { defaultValue: 'Not saved' })
           : '';
 
   return (
     <section
       aria-labelledby="scratchpad-heading"
-      className="bg-white border border-gray-200 rounded-2xl flex flex-col overflow-hidden shadow-sm h-full"
+      className="bg-surface border border-border rounded-2xl flex flex-col overflow-hidden shadow-sm h-full"
     >
-      <div className="bg-gray-50 border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-        <h2 id="scratchpad-heading" className="font-bold text-gray-800">
-          Scratchpad
+      <div className="bg-background border-b border-border px-4 py-3 flex items-center justify-between">
+        <h2 id="scratchpad-heading" className="font-bold text-foreground">
+          {t('activeSession.scratchpad')}
         </h2>
         <span
           aria-live="polite"
-          className={`text-xs ${saveState === 'error' ? 'text-red-600' : 'text-gray-500'}`}
+          className={`text-xs ${saveState === 'error' ? 'text-red-600' : 'text-foreground-muted'}`}
         >
           {statusText}
         </span>
@@ -104,14 +106,14 @@ export function Scratchpad({ initialValue, onSave }: ScratchpadProps) {
           if (timerRef.current) clearTimeout(timerRef.current);
           if (pendingRef.current !== null) void flush(pendingRef.current);
         }}
-        placeholder="Work out your steps here. Only you can see this."
-        aria-label="Scratchpad for your own working notes"
-        className="flex-1 w-full p-4 font-mono text-sm text-gray-900 outline-none resize-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
+        placeholder={t('activeSession.scratchpadPlaceholder')}
+        aria-label={t('activeSession.scratchpad')}
+        className="flex-1 w-full p-4 font-mono text-sm text-foreground outline-none resize-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
       />
 
       {saveState === 'error' && (
         <p role="alert" className="px-4 py-2 text-xs text-red-700 bg-red-50 border-t border-red-100">
-          Your notes could not be saved. They are still here, so you can copy them.
+          {t('activeSession.scratchpadError', { defaultValue: 'Your notes could not be saved. They are still here, so you can copy them.' })}
         </p>
       )}
     </section>

@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { adminAuth } from '@/lib/firebase/admin';
-import { adminDb } from '@/lib/firebase/admin';
+import { adminDb, useEmulators } from '@/lib/firebase/admin';
 import type { Role } from '@/lib/types/user';
 
 /**
@@ -25,6 +25,7 @@ export interface ServerSession {
   uid: string;
   role: Role | null;
   displayName: string | null;
+  preferredLanguage: 'en' | 'vi' | null;
 }
 
 /**
@@ -64,7 +65,9 @@ export async function getServerSession(): Promise<SessionResult> {
 
   let uid: string;
   try {
-    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const decoded = useEmulators
+      ? await adminAuth.verifyIdToken(sessionCookie, true)
+      : await adminAuth.verifySessionCookie(sessionCookie, true);
     uid = decoded.uid;
   } catch (error) {
     if (isCredentialProblem(error)) {
@@ -84,6 +87,7 @@ export async function getServerSession(): Promise<SessionResult> {
         uid,
         role,
         displayName: (data?.displayName as string | undefined) ?? null,
+        preferredLanguage: (data?.preferredLanguage as 'en' | 'vi' | undefined) ?? null,
       },
     };
   } catch (error) {
@@ -93,6 +97,6 @@ export async function getServerSession(): Promise<SessionResult> {
     // The identity is proven but the profile is unreadable. Treat the role as
     // unknown so role checks deny rather than guess.
     console.error('Session verified but user profile could not be read.', error);
-    return { status: 'valid', session: { uid, role: null, displayName: null } };
+    return { status: 'valid', session: { uid, role: null, displayName: null, preferredLanguage: null } };
   }
 }

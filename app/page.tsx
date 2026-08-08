@@ -30,19 +30,19 @@ export default function Home() {
       <div className="flex h-screen w-full items-center justify-center">
         <div className="animate-pulse flex flex-col items-center">
           <div className="h-12 w-12 bg-blue-500 rounded-full mb-4"></div>
-          <p className="text-gray-500 font-medium">Loading ThinkFirst...</p>
+          <p className="text-foreground-muted font-medium">Loading ThinkFirst...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center p-8 bg-white">
+    <div className="flex min-h-screen flex-col items-center justify-center p-8 bg-surface">
       <main className="max-w-3xl text-center space-y-8">
-        <h1 className="text-5xl font-extrabold tracking-tight text-gray-900">
+        <h1 className="text-5xl font-extrabold tracking-tight text-foreground">
           Think<span className="text-blue-600">First</span>
         </h1>
-        <p className="text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed">
+        <p className="text-xl text-foreground-muted max-w-2xl mx-auto leading-relaxed">
           An adaptive AI learning assistant that changes how AI responds based on your age, ability, and task. 
           Instead of just giving answers, we help you think, explain, and verify.
         </p>

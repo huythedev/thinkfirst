@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/components/providers/AuthProvider';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 interface NavLink {
   href: string;
@@ -14,6 +15,8 @@ interface AppShellProps {
   brandSuffix?: string;
   navLinks: NavLink[];
   displayName: string;
+  logoutLabel?: string;
+  skipToMainLabel?: string;
   children: React.ReactNode;
 }
 
@@ -30,27 +33,29 @@ export function AppShell({
   brandSuffix,
   navLinks,
   displayName,
+  logoutLabel = 'Logout',
+  skipToMainLabel = 'Skip to main content',
   children,
 }: AppShellProps) {
   const { logout } = useAuth();
   const pathname = usePathname();
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col theme-transition">
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-blue-700 focus:shadow"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-surface focus:px-4 focus:py-2 focus:text-blue-700 focus:shadow dark:focus:bg-gray-900 dark:focus:text-blue-400"
       >
-        Skip to main content
+        {skipToMainLabel}
       </a>
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
+      <header className="bg-navbar-background backdrop-blur-md border-b border-navbar-border sticky top-0 z-10 theme-transition">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-8">
-              <Link href={brandHref} className="text-2xl font-bold text-gray-900">
-                Think<span className="text-blue-600">First</span>
+              <Link href={brandHref} className="text-2xl font-bold text-navbar-foreground theme-transition">
+                Think<span className="text-blue-500">First</span>
                 {brandSuffix && (
-                  <span className="text-sm font-normal text-gray-500"> {brandSuffix}</span>
+                  <span className="text-sm font-normal text-navbar-muted"> {brandSuffix}</span>
                 )}
               </Link>
               <nav className="hidden md:flex gap-6" aria-label="Main">
@@ -63,10 +68,10 @@ export function AppShell({
                       key={link.href}
                       href={link.href}
                       aria-current={active ? 'page' : undefined}
-                      className={`font-medium ${
+                      className={`font-medium theme-transition ${
                         active
-                          ? 'text-blue-600 border-b-2 border-blue-600'
-                          : 'text-gray-500 hover:text-gray-900'
+                          ? 'text-navbar-active border-b-2 border-navbar-active'
+                          : 'text-navbar-muted hover:text-navbar-foreground'
                       } py-5`}
                     >
                       {link.label}
@@ -76,14 +81,15 @@ export function AppShell({
               </nav>
             </div>
             <div className="flex items-center gap-4">
-              <div className="text-sm font-medium text-gray-700 bg-gray-100 px-3 py-1.5 rounded-full">
+              <ThemeToggle />
+              <div className="text-sm font-medium text-navbar-foreground bg-navbar-chip hover:bg-navbar-chip-hover border border-navbar-border px-3 py-1.5 rounded-full theme-transition">
                 {displayName}
               </div>
               <button
                 onClick={logout}
-                className="text-sm font-medium text-red-600 hover:text-red-800"
+                className="text-sm font-medium text-red-400 hover:text-red-300 theme-transition"
               >
-                Logout
+                {logoutLabel}
               </button>
             </div>
           </div>

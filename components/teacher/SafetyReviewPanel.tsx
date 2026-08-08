@@ -76,10 +76,7 @@ export function SafetyReviewPanel({ classroomId }: { classroomId: string }) {
     try {
       const response = await fetch(`/api/teacher/classrooms/${classroomId}/safety`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${await user.getIdToken()}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ eventId }),
       });
       if (!response.ok) throw new Error('Could not update this flag.');
@@ -93,17 +90,17 @@ export function SafetyReviewPanel({ classroomId }: { classroomId: string }) {
 
   if (loading) {
     return (
-      <section className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm" aria-busy="true">
-        <h2 className="text-lg font-semibold text-gray-900">Wellbeing flags</h2>
-        <div className="mt-4 h-4 w-2/3 bg-gray-100 rounded animate-pulse" />
+      <section className="bg-surface p-6 rounded-lg border border-border shadow-sm" aria-busy="true">
+        <h2 className="text-lg font-semibold text-foreground">Wellbeing flags</h2>
+        <div className="mt-4 h-4 w-2/3 bg-surface-muted rounded animate-pulse" />
       </section>
     );
   }
 
   if (error) {
     return (
-      <section className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
-        <h2 className="text-lg font-semibold text-gray-900">Wellbeing flags</h2>
+      <section className="bg-surface p-6 rounded-lg border border-border shadow-sm">
+        <h2 className="text-lg font-semibold text-foreground">Wellbeing flags</h2>
         <p className="mt-2 text-sm text-red-700">{error}</p>
       </section>
     );
@@ -115,13 +112,13 @@ export function SafetyReviewPanel({ classroomId }: { classroomId: string }) {
   return (
     <section
       className={`p-6 rounded-lg border shadow-sm ${
-        open.length > 0 ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-200'
+        open.length > 0 ? 'bg-background border-amber-300' : 'bg-surface border-border'
       }`}
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Wellbeing flags</h2>
-          <p className="text-sm text-gray-600 mt-1">
+          <h2 className="text-lg font-semibold text-foreground">Wellbeing flags</h2>
+          <p className="text-sm text-foreground-muted mt-1">
             Raised automatically when a student says something the tutor is not the right help
             for. What the student wrote is not shown here.
           </p>
@@ -140,7 +137,7 @@ export function SafetyReviewPanel({ classroomId }: { classroomId: string }) {
       )}
 
       {open.length === 0 && reviewed.length === 0 && (
-        <p className="mt-4 text-sm text-gray-600">
+        <p className="mt-4 text-sm text-foreground-muted">
           {data?.rosterEmpty
             ? 'No students have joined this classroom yet.'
             : 'No flags have been raised for this classroom.'}
@@ -152,16 +149,16 @@ export function SafetyReviewPanel({ classroomId }: { classroomId: string }) {
           {open.map((flag) => (
             <li
               key={flag.id}
-              className="bg-white border border-amber-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between"
+              className="bg-surface border border-amber-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between"
             >
               <div>
-                <p className="font-medium text-gray-900">
+                <p className="font-medium text-foreground">
                   {flag.displayName ?? 'Student'}{' '}
-                  <span className="font-normal text-gray-500">
+                  <span className="font-normal text-foreground-muted">
                     &middot; {CLASS_LABELS[flag.responseClass] ?? 'Flagged'}
                   </span>
                 </p>
-                <p className="text-sm text-gray-600 mt-1">
+                <p className="text-sm text-foreground-muted mt-1">
                   {formatRaised(flag.raisedAt)} &middot; detection confidence{' '}
                   {Math.round(flag.classifierConfidence * 100)}%
                 </p>
@@ -180,7 +177,7 @@ export function SafetyReviewPanel({ classroomId }: { classroomId: string }) {
       )}
 
       {reviewed.length > 0 && (
-        <p className="mt-4 text-sm text-gray-500">
+        <p className="mt-4 text-sm text-foreground-muted">
           {reviewed.length} flag{reviewed.length === 1 ? '' : 's'} already reviewed.
         </p>
       )}

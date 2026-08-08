@@ -1,6 +1,85 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+@theme {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-border: var(--border);
+  --color-focus: var(--focus);
+  --color-navbar-background: var(--navbar-background);
+  --color-navbar-border: var(--navbar-border);
+  --color-navbar-foreground: var(--navbar-foreground);
+  --color-navbar-muted: var(--navbar-muted);
+  --color-navbar-active: var(--navbar-active);
+  --color-navbar-chip: var(--navbar-chip);
+  --color-navbar-chip-hover: var(--navbar-chip-hover);
+}
+
+@layer base {
+  :root {
+    --background: #fffbeb; /* amber-50 */
+    --surface: #ffffff; /* white */
+    --surface-muted: #f9fafb; /* gray-50 */
+    --foreground: #111827; /* gray-900 */
+    --foreground-muted: #4b5563; /* gray-600 */
+    --border: #e5e7eb; /* gray-200 */
+    --focus: #3b82f6; /* blue-500 */
+    
+    /* Navbar is dark in both themes */
+    --navbar-background: #111827; /* gray-900 */
+    --navbar-border: #1f2937; /* gray-800 */
+    --navbar-foreground: #f9fafb; /* gray-50 */
+    --navbar-muted: #9ca3af; /* gray-400 */
+    --navbar-active: #60a5fa; /* blue-400 */
+    --navbar-chip: #1f2937; /* gray-800 */
+    --navbar-chip-hover: #374151; /* gray-700 */
+  }
+
+  .dark {
+    --background: #111827; /* gray-900 */
+    --surface: #1f2937; /* gray-800 */
+    --surface-muted: #374151; /* gray-700 */
+    --foreground: #f9fafb; /* gray-50 */
+    --foreground-muted: #9ca3af; /* gray-400 */
+    --border: #374151; /* gray-700 */
+    --focus: #60a5fa; /* blue-400 */
+    
+    /* Navbar remains exactly the same in dark mode */
+    --navbar-background: #111827; /* gray-900 */
+    --navbar-border: #1f2937; /* gray-800 */
+    --navbar-foreground: #f9fafb; /* gray-50 */
+    --navbar-muted: #9ca3af; /* gray-400 */
+    --navbar-active: #60a5fa; /* blue-400 */
+    --navbar-chip: #1f2937; /* gray-800 */
+    --navbar-chip-hover: #374151; /* gray-700 */
+  }
+}
+
+@layer utilities {
+  .theme-transition,
+  .bg-background, .bg-surface, .bg-surface-muted,
+  .text-foreground, .text-foreground-muted,
+  .border-border, .border-navbar-border,
+  .bg-navbar-background, .bg-navbar-chip, .text-navbar-foreground, .text-navbar-muted, .text-navbar-active {
+    transition-property: background-color, border-color, color, fill, stroke, box-shadow;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 200ms;
+  }
+  
+  @media (prefers-reduced-motion: reduce) {
+    .theme-transition,
+    .bg-background, .bg-surface, .bg-surface-muted,
+    .text-foreground, .text-foreground-muted,
+    .border-border, .border-navbar-border,
+    .bg-navbar-background, .bg-navbar-chip, .text-navbar-foreground, .text-navbar-muted, .text-navbar-active {
+      transition-duration: 0ms;
+    }
+  }
+}
+
 /*
  * Section 40: "Reduced motion."
  *

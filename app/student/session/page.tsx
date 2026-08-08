@@ -6,6 +6,7 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { MAX_HINT_LEVEL } from '@/lib/types/ai/request';
+import { useTranslation } from '@/lib/i18n/client';
 
 interface SessionRow {
   id: string;
@@ -34,11 +35,12 @@ function toDate(value: unknown): Date | null {
 const STATUS_STYLES: Record<string, string> = {
   active: 'bg-blue-100 text-blue-700',
   completed: 'bg-green-100 text-green-700',
-  abandoned: 'bg-gray-100 text-gray-600',
+  abandoned: 'bg-surface-muted text-foreground-muted',
 };
 
 export default function SessionListPage() {
   const { user, loading: authLoading } = useAuth();
+  const { t } = useTranslation();
   const [sessions, setSessions] = useState<SessionRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,14 +76,14 @@ export default function SessionListPage() {
         console.error('Failed to load sessions', cause);
         if (!cancelled) {
           setSessions([]);
-          setError('We could not load your sessions.');
+          setError(t('mySessions.error_fallback', { defaultValue: 'We could not load your sessions.' }));
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [user, authLoading]);
+  }, [user, authLoading, t]);
 
   // The server cookie can be valid while the client SDK has no user. Firestore
   // reads would then hang unanswered, so treat it as an error state rather than
@@ -89,33 +91,33 @@ export default function SessionListPage() {
   const signedOut = !authLoading && !user;
   const rows = signedOut ? [] : sessions;
   const listError =
-    error ?? (signedOut ? 'Your sign-in has expired. Reload the page to continue.' : null);
+    error ?? (signedOut ? t('mySessions.sessionExpired') : null);
 
   return (
     <div className="max-w-4xl mx-auto">
       <header className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">My sessions</h1>
-          <p className="text-gray-600 mt-1">Pick up where you left off, or start something new.</p>
+          <h1 className="text-3xl font-bold text-foreground">{t('mySessions.title')}</h1>
+          <p className="text-foreground-muted mt-1">{t('mySessions.subtitle')}</p>
         </div>
         <Link
           href="/student/session/new"
           className="px-6 py-3 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700"
         >
-          Start a session
+          {t('mySessions.startSession')}
         </Link>
       </header>
 
       {rows === null && (
         <div className="space-y-3" role="status" aria-live="polite">
-          <span className="sr-only">Loading your sessions</span>
+          <span className="sr-only">{t('mySessions.loading')}</span>
           {[0, 1, 2].map((row) => (
             <div
               key={row}
-              className="bg-white border border-gray-200 rounded-2xl p-5 animate-pulse space-y-3"
+              className="bg-surface border border-border rounded-2xl p-5 animate-pulse space-y-3"
             >
-              <div className="h-4 w-2/3 bg-gray-100 rounded" />
-              <div className="h-3 w-1/3 bg-gray-100 rounded" />
+              <div className="h-4 w-2/3 bg-surface-muted rounded" />
+              <div className="h-3 w-1/3 bg-surface-muted rounded" />
             </div>
           ))}
         </div>
@@ -128,23 +130,22 @@ export default function SessionListPage() {
             onClick={() => window.location.reload()}
             className="mt-3 text-sm font-medium underline"
           >
-            Try again
+            {t('mySessions.tryAgain')}
           </button>
         </div>
       )}
 
       {rows !== null && !listError && rows.length === 0 && (
-        <div className="bg-white border border-dashed border-gray-300 rounded-2xl p-12 text-center">
-          <h2 className="text-lg font-semibold text-gray-800">No sessions yet</h2>
-          <p className="text-gray-600 mt-2 max-w-md mx-auto">
-            Start a session with a problem you are working on, and your conversation will be
-            saved here so you can come back to it.
+        <div className="bg-surface border border-dashed border-border rounded-2xl p-12 text-center">
+          <h2 className="text-lg font-semibold text-foreground">{t('mySessions.noSessionsTitle')}</h2>
+          <p className="text-foreground-muted mt-2 max-w-md mx-auto">
+            {t('mySessions.noSessionsDesc')}
           </p>
           <Link
             href="/student/session/new"
             className="inline-block mt-6 px-6 py-3 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700"
           >
-            Start your first session
+            {t('mySessions.startFirst')}
           </Link>
         </div>
       )}
@@ -155,25 +156,25 @@ export default function SessionListPage() {
             <li key={session.id}>
               <Link
                 href={`/student/session/${session.id}`}
-                className="block bg-white border border-gray-200 rounded-2xl p-5 hover:border-blue-400 hover:shadow-sm transition"
+                className="block bg-surface border border-border rounded-2xl p-5 hover:border-blue-400 hover:shadow-sm transition"
               >
                 <div className="flex items-start justify-between gap-4">
-                  <p className="font-medium text-gray-900 line-clamp-2 flex-1">
-                    {session.originalProblem || 'Untitled problem'}
+                  <p className="font-medium text-foreground line-clamp-2 flex-1">
+                    {session.originalProblem || t('mySessions.untitledProblem')}
                   </p>
                   <span
                     className={`text-xs px-2 py-1 rounded font-medium capitalize shrink-0 ${
                       STATUS_STYLES[session.status] ?? STATUS_STYLES.abandoned
                     }`}
                   >
-                    {session.status}
+                    {t(`domain.sessionStatus.${session.status}`) || session.status}
                   </span>
                 </div>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-xs text-gray-500">
-                  <span className="capitalize">{session.subject}</span>
-                  <span className="capitalize">{session.mode}</span>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-xs text-foreground-muted">
+                  <span className="capitalize">{t(`domain.subjects.${session.subject}`) || session.subject}</span>
+                  <span className="capitalize">{t(`domain.modes.${session.mode}`) || session.mode}</span>
                   <span>
-                    Hint level {session.currentHintLevel} / {MAX_HINT_LEVEL}
+                    {t('mySessions.hintLevel', { current: session.currentHintLevel, max: MAX_HINT_LEVEL })}
                   </span>
                   {session.startedAt && <span>{session.startedAt.toLocaleDateString()}</span>}
                 </div>

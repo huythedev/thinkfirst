@@ -90,7 +90,6 @@ export default function AssignmentDetail() {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${await user.getIdToken()}`,
         },
         body: JSON.stringify({
           title: draft.title,
@@ -133,7 +132,7 @@ export default function AssignmentDetail() {
   if (notFound) {
     return (
       <div className="text-center p-12">
-        <h2 className="text-2xl font-bold text-gray-900">Assignment not found</h2>
+        <h2 className="text-2xl font-bold text-foreground">Assignment not found</h2>
         <Link href="/teacher/classrooms" className="text-blue-600 hover:underline mt-4 inline-block">
           Return to classrooms
         </Link>
@@ -143,16 +142,16 @@ export default function AssignmentDetail() {
 
   if (error || !data || !draft) {
     return (
-      <div className="bg-white border border-red-200 rounded-lg p-6" role="alert">
-        <h2 className="text-lg font-semibold text-gray-900">Assignment could not be loaded</h2>
-        <p className="text-sm text-gray-600 mt-2">{error}</p>
+      <div className="bg-surface border border-red-200 rounded-lg p-6" role="alert">
+        <h2 className="text-lg font-semibold text-foreground">Assignment could not be loaded</h2>
+        <p className="text-sm text-foreground-muted mt-2">{error}</p>
       </div>
     );
   }
 
   const assignment = data.assignment;
   const field =
-    'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';
+    'w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';
 
   return (
     <div className="space-y-6">
@@ -160,18 +159,18 @@ export default function AssignmentDetail() {
         <div className="flex items-center gap-4">
           <Link
             href={`/teacher/classrooms/${assignment.classroomId ?? ''}`}
-            className="text-gray-500 hover:text-gray-900"
+            className="text-foreground-muted hover:text-foreground"
           >
             &larr; Back
           </Link>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">{assignment.title}</h1>
-            <p className="text-sm text-gray-500">{assignment.classroomName}</p>
+            <h1 className="text-3xl font-bold text-foreground">{assignment.title}</h1>
+            <p className="text-sm text-foreground-muted">{assignment.classroomName}</p>
           </div>
         </div>
         <button
           onClick={() => setEditing((current) => !current)}
-          className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+          className="px-4 py-2 border border-border rounded-lg text-sm font-medium text-foreground-muted hover:bg-background"
         >
           {editing ? 'Cancel' : 'Edit'}
         </button>
@@ -183,11 +182,11 @@ export default function AssignmentDetail() {
         </p>
       )}
 
-      <div className="bg-white p-8 rounded-lg border border-gray-200 shadow-sm max-w-3xl space-y-6">
+      <div className="bg-surface p-8 rounded-lg border border-border shadow-sm max-w-3xl space-y-6">
         {editing ? (
           <>
             <div>
-              <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="title" className="block text-sm font-medium text-foreground-muted mb-1">
                 Title
               </label>
               <input
@@ -198,7 +197,7 @@ export default function AssignmentDetail() {
               />
             </div>
             <div>
-              <label htmlFor="instructions" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="instructions" className="block text-sm font-medium text-foreground-muted mb-1">
                 Instructions
               </label>
               <textarea
@@ -210,7 +209,7 @@ export default function AssignmentDetail() {
               />
             </div>
             <div>
-              <label htmlFor="objective" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="objective" className="block text-sm font-medium text-foreground-muted mb-1">
                 Learning objective
               </label>
               <input
@@ -221,12 +220,12 @@ export default function AssignmentDetail() {
               />
             </div>
             <fieldset>
-              <legend className="block text-sm font-medium text-gray-700 mb-1">
+              <legend className="block text-sm font-medium text-foreground-muted mb-1">
                 Allowed learning modes
               </legend>
               <div className="flex flex-wrap gap-4">
                 {MODE_VALUES.map((mode) => (
-                  <label key={mode} className="flex items-center gap-2 text-sm text-gray-700">
+                  <label key={mode} className="flex items-center gap-2 text-sm text-foreground-muted">
                     <input
                       type="checkbox"
                       checked={draft.allowedModes.includes(mode)}
@@ -238,7 +237,7 @@ export default function AssignmentDetail() {
                             : [...draft.allowedModes, mode],
                         })
                       }
-                      className="rounded border-gray-300"
+                      className="rounded border-border"
                     />
                     <span className="capitalize">{mode}</span>
                   </label>
@@ -246,7 +245,7 @@ export default function AssignmentDetail() {
               </div>
             </fieldset>
             <div>
-              <label htmlFor="strictness" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="strictness" className="block text-sm font-medium text-foreground-muted mb-1">
                 Assistance strictness
               </label>
               <select
@@ -263,42 +262,42 @@ export default function AssignmentDetail() {
               </select>
             </div>
             <div className="space-y-3">
-              <label className="flex items-center gap-2 text-sm text-gray-700">
+              <label className="flex items-center gap-2 text-sm text-foreground-muted">
                 <input
                   type="checkbox"
                   checked={draft.allowFullSolutions}
                   onChange={(event) =>
                     setDraft({ ...draft, allowFullSolutions: event.target.checked })
                   }
-                  className="rounded border-gray-300"
+                  className="rounded border-border"
                 />
                 Allow full solutions
               </label>
-              <label className="flex items-center gap-2 text-sm text-gray-700">
+              <label className="flex items-center gap-2 text-sm text-foreground-muted">
                 <input
                   type="checkbox"
                   checked={draft.requireTransferProblem}
                   onChange={(event) =>
                     setDraft({ ...draft, requireTransferProblem: event.target.checked })
                   }
-                  className="rounded border-gray-300"
+                  className="rounded border-border"
                 />
                 Require a transfer problem
               </label>
-              <label className="flex items-center gap-2 text-sm text-gray-700">
+              <label className="flex items-center gap-2 text-sm text-foreground-muted">
                 <input
                   type="checkbox"
                   checked={draft.status === 'archived'}
                   onChange={(event) =>
                     setDraft({ ...draft, status: event.target.checked ? 'archived' : 'active' })
                   }
-                  className="rounded border-gray-300"
+                  className="rounded border-border"
                 />
                 Archived
               </label>
             </div>
             <div>
-              <label htmlFor="reference" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="reference" className="block text-sm font-medium text-foreground-muted mb-1">
                 Teacher reference answer
               </label>
               <textarea
@@ -320,64 +319,64 @@ export default function AssignmentDetail() {
         ) : (
           <>
             <div>
-              <h2 className="text-sm font-medium text-gray-500">Instructions</h2>
-              <p className="text-gray-900 mt-1 whitespace-pre-wrap">{assignment.instructions}</p>
+              <h2 className="text-sm font-medium text-foreground-muted">Instructions</h2>
+              <p className="text-foreground mt-1 whitespace-pre-wrap">{assignment.instructions}</p>
             </div>
             <div>
-              <h2 className="text-sm font-medium text-gray-500">Learning objective</h2>
-              <p className="text-gray-900 mt-1">{assignment.learningObjective}</p>
+              <h2 className="text-sm font-medium text-foreground-muted">Learning objective</h2>
+              <p className="text-foreground mt-1">{assignment.learningObjective}</p>
             </div>
             <dl className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
               <div>
-                <dt className="text-gray-500">Subject</dt>
-                <dd className="text-gray-900 font-medium">{assignment.subject}</dd>
+                <dt className="text-foreground-muted">Subject</dt>
+                <dd className="text-foreground font-medium">{assignment.subject}</dd>
               </div>
               <div>
-                <dt className="text-gray-500">Grade</dt>
-                <dd className="text-gray-900 font-medium">{assignment.grade}</dd>
+                <dt className="text-foreground-muted">Grade</dt>
+                <dd className="text-foreground font-medium">{assignment.grade}</dd>
               </div>
               <div>
-                <dt className="text-gray-500">Strictness</dt>
-                <dd className="text-gray-900 font-medium">
+                <dt className="text-foreground-muted">Strictness</dt>
+                <dd className="text-foreground font-medium">
                   {STRICTNESS_LABELS[assignment.strictness] ?? assignment.strictness}
                 </dd>
               </div>
               <div>
-                <dt className="text-gray-500">Allowed modes</dt>
-                <dd className="text-gray-900 font-medium capitalize">
+                <dt className="text-foreground-muted">Allowed modes</dt>
+                <dd className="text-foreground font-medium capitalize">
                   {assignment.allowedModes.join(', ')}
                 </dd>
               </div>
               <div>
-                <dt className="text-gray-500">Full solutions</dt>
-                <dd className="text-gray-900 font-medium">
+                <dt className="text-foreground-muted">Full solutions</dt>
+                <dd className="text-foreground font-medium">
                   {assignment.allowFullSolutions ? 'Allowed' : 'Not allowed'}
                 </dd>
               </div>
               <div>
-                <dt className="text-gray-500">Transfer problem</dt>
-                <dd className="text-gray-900 font-medium">
+                <dt className="text-foreground-muted">Transfer problem</dt>
+                <dd className="text-foreground font-medium">
                   {assignment.requireTransferProblem ? 'Required' : 'Optional'}
                 </dd>
               </div>
             </dl>
             {assignment.referenceAnswer && (
-              <div className="border-t border-gray-200 pt-4">
-                <h2 className="text-sm font-medium text-gray-500">
+              <div className="border-t border-border pt-4">
+                <h2 className="text-sm font-medium text-foreground-muted">
                   Teacher reference answer
                   <span className="ml-2 text-xs font-normal text-gray-400">
                     Never visible to students
                   </span>
                 </h2>
-                <p className="text-gray-900 mt-1 whitespace-pre-wrap">
+                <p className="text-foreground mt-1 whitespace-pre-wrap">
                   {assignment.referenceAnswer}
                 </p>
               </div>
             )}
             {assignment.keyConcepts && (
               <div>
-                <h2 className="text-sm font-medium text-gray-500">Key concepts</h2>
-                <p className="text-gray-900 mt-1 whitespace-pre-wrap">{assignment.keyConcepts}</p>
+                <h2 className="text-sm font-medium text-foreground-muted">Key concepts</h2>
+                <p className="text-foreground mt-1 whitespace-pre-wrap">{assignment.keyConcepts}</p>
               </div>
             )}
           </>

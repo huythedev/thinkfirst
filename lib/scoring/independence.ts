@@ -145,6 +145,7 @@ interface Scored {
   confidence: number;
   state: EvidenceState;
   rationale: string;
+  rationaleCode?: string;
 }
 
 function toComponent(id: ComponentId, scored: Scored): ComponentScore {
@@ -156,6 +157,7 @@ function toComponent(id: ComponentId, scored: Scored): ComponentScore {
     confidence: round4(scored.confidence),
     state: scored.state,
     rationale: scored.rationale,
+    rationaleCode: scored.rationaleCode,
   };
 }
 
@@ -169,7 +171,7 @@ function scoreFirstAttempt(metrics: SessionMetrics): Scored {
       value: null,
       confidence: 0,
       state: 'not_applicable',
-      rationale: 'Starting the problem yourself did not apply in this session.',
+      rationale: 'Starting the problem yourself did not apply in this session.', rationaleCode: 'STARTING_THE_PROBLEM_YOURSELF',
     };
   }
 
@@ -178,7 +180,7 @@ function scoreFirstAttempt(metrics: SessionMetrics): Scored {
       value: null,
       confidence: 0,
       state: 'unavailable',
-      rationale: 'No first attempt was recorded, so this could not be measured.',
+      rationale: 'No first attempt was recorded, so this could not be measured.', rationaleCode: 'NO_FIRST_ATTEMPT_WAS_RECORDED',
     };
   }
 
@@ -187,19 +189,19 @@ function scoreFirstAttempt(metrics: SessionMetrics): Scored {
       value: 0.1,
       confidence: 1,
       state: 'observed',
-      rationale: 'Asked for the answer several times before trying a step.',
+      rationale: 'Asked for the answer several times before trying a step.', rationaleCode: 'ASKED_FOR_THE_ANSWER_SEVERAL_T',
     };
   }
 
   const byQuality = {
-    meaningful: { value: 1.0, rationale: 'Started with a meaningful attempt.' },
-    partial: { value: 0.7, rationale: 'Started with a partial attempt.' },
-    minimal: { value: 0.45, rationale: 'Started with a minimal attempt.' },
-    none: { value: 0.2, rationale: 'Asked for help before trying a first step.' },
+    meaningful: { value: 1.0, rationale: 'Started with a meaningful attempt.', rationaleCode: 'STARTED_WITH_A_MEANINGFUL_ATTE' },
+    partial: { value: 0.7, rationale: 'Started with a partial attempt.', rationaleCode: 'STARTED_WITH_A_PARTIAL_ATTEMPT' },
+    minimal: { value: 0.45, rationale: 'Started with a minimal attempt.', rationaleCode: 'STARTED_WITH_A_MINIMAL_ATTEMPT' },
+    none: { value: 0.2, rationale: 'Asked for help before trying a first step.', rationaleCode: 'ASKED_FOR_HELP_BEFORE_TRYING_A' },
   } as const;
 
   const graded = byQuality[metrics.firstAttemptQuality];
-  return { value: graded.value, confidence: 1, state: 'observed', rationale: graded.rationale };
+  return { value: graded.value, confidence: 1, state: 'observed', rationale: graded.rationale, rationaleCode: (graded as any).rationaleCode };
 }
 
 /**
@@ -217,7 +219,7 @@ function scoreHintEfficiency(metrics: SessionMetrics): Scored {
       value: null,
       confidence: 0,
       state: 'not_applicable',
-      rationale: 'Hints did not come up in this session.',
+      rationale: 'Hints did not come up in this session.', rationaleCode: 'HINTS_DID_NOT_COME_UP_IN_THIS',
     };
   }
 
@@ -228,7 +230,7 @@ function scoreHintEfficiency(metrics: SessionMetrics): Scored {
       value: null,
       confidence: 0,
       state: 'unavailable',
-      rationale: 'Hint levels were not recorded for this session, so this is not counted.',
+      rationale: 'Hint levels were not recorded for this session, so this is not counted.', rationaleCode: 'HINT_LEVELS_WERE_NOT_RECORDED',
     };
   }
 
@@ -248,10 +250,7 @@ function scoreHintEfficiency(metrics: SessionMetrics): Scored {
     value,
     confidence: 1,
     state: 'observed',
-    rationale:
-      effectiveHint === 0
-        ? `Worked without asking for a hint, with level ${ceiling} available.`
-        : `Needed hints up to level ${effectiveHint} of ${ceiling} available.`,
+    rationale: effectiveHint === 0 ? `Worked without asking for a hint, with level ${ceiling} available.` : `Needed hints up to level ${effectiveHint} of ${ceiling} available.`, rationaleCode: effectiveHint === 0 ? 'WORKED_WITHOUT_HINT' : 'NEEDED_HINTS',
   };
 }
 
@@ -269,7 +268,7 @@ function scoreReasoning(metrics: SessionMetrics): Scored {
       value: null,
       confidence: 0,
       state: 'not_applicable',
-      rationale: 'Explaining reasoning did not apply in this session.',
+      rationale: 'Explaining reasoning did not apply in this session.', rationaleCode: 'EXPLAINING_REASONING_DID_NOT_A',
     };
   }
 
@@ -278,7 +277,7 @@ function scoreReasoning(metrics: SessionMetrics): Scored {
       value: 0.1,
       confidence: 1,
       state: 'declined',
-      rationale: 'Was asked to explain the reasoning and did not.',
+      rationale: 'Was asked to explain the reasoning and did not.', rationaleCode: 'WAS_ASKED_TO_EXPLAIN_THE_REASO',
     };
   }
 
@@ -287,7 +286,7 @@ function scoreReasoning(metrics: SessionMetrics): Scored {
       value: null,
       confidence: 0,
       state: 'unavailable',
-      rationale: 'The explanation rubric was not evaluated for this session.',
+      rationale: 'The explanation rubric was not evaluated for this session.', rationaleCode: 'THE_EXPLANATION_RUBRIC_WAS_NOT',
     };
   }
 
@@ -303,10 +302,7 @@ function scoreReasoning(metrics: SessionMetrics): Scored {
     value: met * 0.25,
     confidence: clamp(rubric.confidence, 0, 1),
     state: 'observed',
-    rationale:
-      met === 0
-        ? 'Did not explain the thinking behind the steps.'
-        : `Met ${met} of 4 explanation criteria.`,
+    rationale: met === 0 ? 'Did not explain the thinking behind the steps.' : `Met ${met} of 4 explanation criteria.`, rationaleCode: met === 0 ? 'DID_NOT_EXPLAIN' : 'MET_EXPLANATION_CRITERIA',
   };
 }
 
@@ -327,7 +323,7 @@ function scoreTransfer(metrics: SessionMetrics): Scored {
       value: null,
       confidence: 0,
       state: 'not_applicable',
-      rationale: 'No transfer problem was offered in this session.',
+      rationale: 'No transfer problem was offered in this session.', rationaleCode: 'NO_TRANSFER_PROBLEM_WAS_OFFERE',
     };
   }
 
@@ -338,7 +334,7 @@ function scoreTransfer(metrics: SessionMetrics): Scored {
       value: applyDifficulty(0.1, metrics.difficulty),
       confidence: 1,
       state: 'declined',
-      rationale: 'A transfer problem was offered and not attempted.',
+      rationale: 'A transfer problem was offered and not attempted.', rationaleCode: 'A_TRANSFER_PROBLEM_WAS_OFFERED',
     };
   }
 
@@ -351,24 +347,24 @@ function scoreTransfer(metrics: SessionMetrics): Scored {
       value: null,
       confidence: 0,
       state: 'unavailable',
-      rationale: 'Whether the transfer answer was correct could not be established.',
+      rationale: 'Whether the transfer answer was correct could not be established.', rationaleCode: 'WHETHER_THE_TRANSFER_ANSWER_WA',
     };
   }
 
-  const byOutcome: Record<TransferOutcome, { value: number; rationale: string }> = {
-    independent_correct: { value: 1.0, rationale: 'Solved a similar problem independently.' },
-    minor_prompt: { value: 0.8, rationale: 'Solved a similar problem after a small nudge.' },
+  const byOutcome: Record<TransferOutcome, { value: number; rationale: string; rationaleCode?: string }> = {
+    independent_correct: { value: 1.0, rationale: 'Solved a similar problem independently.', rationaleCode: 'SOLVED_A_SIMILAR_PROBLEM_INDEP' },
+    minor_prompt: { value: 0.8, rationale: 'Solved a similar problem after a small nudge.', rationaleCode: 'SOLVED_A_SIMILAR_PROBLEM_AFTER_NUDGE' },
     one_conceptual_hint: {
       value: 0.6,
-      rationale: 'Solved a similar problem after one concept hint.',
+      rationale: 'Solved a similar problem after one concept hint.', rationaleCode: 'SOLVED_A_SIMILAR_PROBLEM_AFTER_HINT',
     },
-    partial: { value: 0.4, rationale: 'Made partial progress on a similar problem.' },
+    partial: { value: 0.4, rationale: 'Made partial progress on a similar problem.', rationaleCode: 'MADE_PARTIAL_PROGRESS_ON_A_SIM' },
     attempted_incorrect: {
       value: 0.2,
-      rationale: 'Attempted a similar problem and did not reach a correct answer.',
+      rationale: 'Attempted a similar problem and did not reach a correct answer.', rationaleCode: 'ATTEMPTED_A_SIMILAR_PROBLEM_AN',
     },
-    declined: { value: 0.1, rationale: 'A transfer problem was offered and not attempted.' },
-    unable_to_begin: { value: 0.2, rationale: 'Could not start the similar problem yet.' },
+    declined: { value: 0.1, rationale: 'A transfer problem was offered and not attempted.', rationaleCode: 'A_TRANSFER_PROBLEM_WAS_OFFERED' },
+    unable_to_begin: { value: 0.2, rationale: 'Could not start the similar problem yet.', rationaleCode: 'COULD_NOT_START_THE_SIMILAR_PR' },
   };
 
   const graded = byOutcome[transfer.outcome];
@@ -398,7 +394,7 @@ function scoreVerification(metrics: SessionMetrics): Scored {
       value: null,
       confidence: 0,
       state: 'not_applicable',
-      rationale: 'Checking the answer did not come up in this session.',
+      rationale: 'Checking the answer did not come up in this session.', rationaleCode: 'CHECKING_THE_ANSWER_DID_NOT_CO',
     };
   }
 
@@ -407,7 +403,7 @@ function scoreVerification(metrics: SessionMetrics): Scored {
       value: 0.1,
       confidence: 1,
       state: 'declined',
-      rationale: 'Was asked to check the result and did not.',
+      rationale: 'Was asked to check the result and did not.', rationaleCode: 'WAS_ASKED_TO_CHECK_THE_RESULT',
     };
   }
 
@@ -416,7 +412,7 @@ function scoreVerification(metrics: SessionMetrics): Scored {
       value: null,
       confidence: 0,
       state: 'unavailable',
-      rationale: 'Verification behavior was not evaluated for this session.',
+      rationale: 'Verification behavior was not evaluated for this session.', rationaleCode: 'VERIFICATION_BEHAVIOR_WAS_NOT',
     };
   }
 
@@ -432,7 +428,7 @@ function scoreVerification(metrics: SessionMetrics): Scored {
     value: met * 0.25,
     confidence: clamp(rubric.confidence, 0, 1),
     state: 'observed',
-    rationale: met === 0 ? 'Did not check the result.' : `Met ${met} of 4 checking criteria.`,
+    rationale: met === 0 ? 'Did not check the result.' : `Met ${met} of 4 checking criteria.`, rationaleCode: met === 0 ? 'DID_NOT_CHECK' : 'MET_CHECKING_CRITERIA',
   };
 }
 
@@ -529,6 +525,7 @@ function aggregateComponents(sessions: SessionScore[]): ComponentScore[] {
         rationale: anyUnavailable
           ? 'This was not recorded yet, so it is not counted either way.'
           : 'Not enough evidence yet.',
+        rationaleCode: anyUnavailable ? 'NOT_RECORDED' : 'NOT_ENOUGH_EVIDENCE',
       };
     }
 
@@ -545,11 +542,12 @@ function aggregateComponents(sessions: SessionScore[]): ComponentScore[] {
       confidence: round4(confidenceSum / samples.length),
       state: samples[samples.length - 1].state,
       rationale: samples[samples.length - 1].rationale,
+      rationaleCode: samples[samples.length - 1].rationaleCode,
     };
   });
 }
 
-function buildSuggestion(components: ComponentScore[]): string | null {
+function buildSuggestion(components: ComponentScore[]): { suggestion: string; suggestionCode: string } | null {
   const scored = components.filter(
     (component) => component.value !== null && component.confidence > 0,
   );
@@ -560,7 +558,10 @@ function buildSuggestion(components: ComponentScore[]): string | null {
   );
 
   if ((weakest.value ?? 0) >= 0.8) {
-    return 'Keep going the way you are. Try a harder problem to stretch yourself.';
+    return {
+      suggestion: 'Keep going the way you are. Try a harder problem to stretch yourself.',
+      suggestionCode: 'KEEP_GOING',
+    };
   }
 
   const suggestions: Record<ComponentId, string> = {
@@ -574,7 +575,7 @@ function buildSuggestion(components: ComponentScore[]): string | null {
     verificationBehavior: 'Check your answer by substituting it back into the original problem.',
   };
 
-  return suggestions[weakest.id];
+  return { suggestion: suggestions[weakest.id], suggestionCode: weakest.id };
 }
 
 /** The §35 instrumentation-health metric the amendment to section 36 requires. */
@@ -679,6 +680,8 @@ export function computeIndependenceProfile(
     }
   }
 
+  const suggestionResult = buildSuggestion(components);
+
   return {
     score,
     band: score === null ? null : bandForScore(score),
@@ -692,7 +695,8 @@ export function computeIndependenceProfile(
     instrumentationUnavailableRate: instrumentationUnavailableRate(perSession),
     components,
     perSession,
-    suggestion: buildSuggestion(components),
+    suggestion: suggestionResult?.suggestion ?? null,
+    suggestionCode: suggestionResult?.suggestionCode ?? null,
     scoringVersion: SCORING_VERSION,
   };
 }

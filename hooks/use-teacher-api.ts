@@ -44,9 +44,7 @@ export function useTeacherApi<T>(path: string | null): TeacherApiState<T> {
 
     const load = async () => {
       try {
-        const response = await fetch(path, {
-          headers: { Authorization: `Bearer ${await user.getIdToken()}` },
-        });
+        const response = await fetch(window.location.origin + path);
 
         if (response.status === 404) {
           if (!cancelled) setState({ key, data: null, error: null, notFound: true });

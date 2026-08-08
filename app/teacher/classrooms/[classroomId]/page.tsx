@@ -114,8 +114,8 @@ export default function ClassroomView() {
   if (notFound || (!data && !error)) {
     return (
       <div className="text-center p-12">
-        <h2 className="text-2xl font-bold text-gray-900">Classroom not found</h2>
-        <p className="text-gray-500 mt-2">
+        <h2 className="text-2xl font-bold text-foreground">Classroom not found</h2>
+        <p className="text-foreground-muted mt-2">
           It may have been deleted, or it belongs to another teacher.
         </p>
         <Link href="/teacher/classrooms" className="text-blue-600 hover:underline mt-4 inline-block">
@@ -127,9 +127,9 @@ export default function ClassroomView() {
 
   if (error || !data) {
     return (
-      <div className="bg-white border border-red-200 rounded-lg p-6" role="alert">
-        <h2 className="text-lg font-semibold text-gray-900">Classroom could not be loaded</h2>
-        <p className="text-sm text-gray-600 mt-2">{error}</p>
+      <div className="bg-surface border border-red-200 rounded-lg p-6" role="alert">
+        <h2 className="text-lg font-semibold text-foreground">Classroom could not be loaded</h2>
+        <p className="text-sm text-foreground-muted mt-2">{error}</p>
       </div>
     );
   }
@@ -143,28 +143,28 @@ export default function ClassroomView() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <Link href="/teacher/classrooms" className="text-gray-500 hover:text-gray-900">
+        <Link href="/teacher/classrooms" className="text-foreground-muted hover:text-foreground">
           &larr; Back
         </Link>
-        <h1 className="text-3xl font-bold text-gray-900">{classroom.name}</h1>
+        <h1 className="text-3xl font-bold text-foreground">{classroom.name}</h1>
       </div>
 
-      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-surface p-6 rounded-lg border border-border shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <p className="text-sm text-gray-500">Subject</p>
-          <p className="font-medium text-gray-900">
+          <p className="text-sm text-foreground-muted">Subject</p>
+          <p className="font-medium text-foreground">
             {classroom.subject} (Grade {classroom.grade})
           </p>
         </div>
         <div>
-          <p className="text-sm text-gray-500">Join code</p>
+          <p className="text-sm text-foreground-muted">Join code</p>
           <p className="font-mono text-lg font-bold text-blue-600 tracking-wider bg-blue-50 px-3 py-1 rounded inline-block">
             {classroom.joinCode}
           </p>
         </div>
         <div>
-          <p className="text-sm text-gray-500">Assistance policy</p>
-          <p className="font-medium text-gray-900 capitalize">
+          <p className="text-sm text-foreground-muted">Assistance policy</p>
+          <p className="font-medium text-foreground capitalize">
             {classroom.defaultStrictness.replace('_', ' ')}
           </p>
         </div>
@@ -208,16 +208,16 @@ export default function ClassroomView() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-              <h2 className="text-lg font-semibold text-gray-900">Students</h2>
+          <div className="bg-surface rounded-lg border border-border shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-border bg-background">
+              <h2 className="text-lg font-semibold text-foreground">Students</h2>
             </div>
             {analytics.roster.length === 0 ? (
-              <div className="p-12 text-center text-gray-500">
+              <div className="p-12 text-center text-foreground-muted">
                 <p>No students have joined yet.</p>
                 <p className="mt-2 text-sm">
                   Share the join code{' '}
-                  <span className="font-mono bg-gray-100 px-1 rounded">{classroom.joinCode}</span>{' '}
+                  <span className="font-mono bg-surface-muted px-1 rounded">{classroom.joinCode}</span>{' '}
                   with your students.
                 </p>
               </div>
@@ -227,25 +227,25 @@ export default function ClassroomView() {
                   <caption className="sr-only">
                     Students in this classroom, with independence evidence
                   </caption>
-                  <thead className="bg-gray-50">
+                  <thead className="bg-background">
                     <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-foreground-muted uppercase">
                         Student
                       </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-foreground-muted uppercase">
                         Sessions
                       </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-foreground-muted uppercase">
                         Independence
                       </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-foreground-muted uppercase">
                         Last active
                       </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {analytics.roster.map((row) => (
-                      <tr key={row.studentId} className="hover:bg-gray-50">
+                      <tr key={row.studentId} className="hover:bg-background">
                         <td className="px-6 py-4">
                           <Link
                             href={`/teacher/classrooms/${classroom.id}/students/${row.studentId}`}
@@ -263,15 +263,15 @@ export default function ClassroomView() {
                             </ul>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-900">{row.sessionsCompleted}</td>
+                        <td className="px-6 py-4 text-sm text-foreground">{row.sessionsCompleted}</td>
                         <td className="px-6 py-4 text-sm">
                           {row.suppressed || row.score === null ? (
-                            <span className="text-gray-500">Not enough evidence yet</span>
+                            <span className="text-foreground-muted">Not enough evidence yet</span>
                           ) : (
-                            <span className="font-medium text-gray-900">{row.score}</span>
+                            <span className="font-medium text-foreground">{row.score}</span>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-500">
+                        <td className="px-6 py-4 text-sm text-foreground-muted">
                           {formatDate(row.lastActiveAt)}
                         </td>
                       </tr>
@@ -282,12 +282,12 @@ export default function ClassroomView() {
             )}
           </div>
 
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-              <h2 className="text-lg font-semibold text-gray-900">Topic mastery</h2>
+          <div className="bg-surface rounded-lg border border-border shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-border bg-background">
+              <h2 className="text-lg font-semibold text-foreground">Topic mastery</h2>
             </div>
             {analytics.topicMastery.length === 0 ? (
-              <div className="p-8 text-center text-gray-500 text-sm">
+              <div className="p-8 text-center text-foreground-muted text-sm">
                 <p>No topic evidence yet. Mastery appears once students complete sessions.</p>
               </div>
             ) : (
@@ -296,14 +296,14 @@ export default function ClassroomView() {
                   <li key={`${topic.subject}-${topic.topic}`} className="px-6 py-4">
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <p className="font-medium text-gray-900">{topic.topic}</p>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="font-medium text-foreground">{topic.topic}</p>
+                        <p className="text-xs text-foreground-muted mt-1">
                           {topic.subject} &middot; {topic.studentCount}{' '}
                           {topic.studentCount === 1 ? 'student' : 'students'}
                         </p>
                       </div>
                       <div className="text-right text-sm shrink-0">
-                        <p className="text-gray-500">
+                        <p className="text-foreground-muted">
                           Guided {Math.round(topic.guidedAccuracy * 100)}% &middot; Independent{' '}
                           {Math.round(topic.independentAccuracy * 100)}%
                         </p>
@@ -320,9 +320,9 @@ export default function ClassroomView() {
         </div>
 
         <div className="space-y-6">
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-              <h2 className="text-lg font-semibold text-gray-900">Assignments</h2>
+          <div className="bg-surface rounded-lg border border-border shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-border bg-background flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-foreground">Assignments</h2>
               <Link
                 href={`/teacher/classrooms/${classroom.id}/assignments/new`}
                 className="text-sm text-blue-600 hover:text-blue-800 font-medium"
@@ -336,10 +336,10 @@ export default function ClassroomView() {
                   <li key={assignment.id}>
                     <Link
                       href={`/teacher/assignments/${assignment.id}`}
-                      className="block px-6 py-4 hover:bg-gray-50"
+                      className="block px-6 py-4 hover:bg-background"
                     >
-                      <p className="font-medium text-gray-900">{assignment.title}</p>
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="font-medium text-foreground">{assignment.title}</p>
+                      <p className="text-xs text-foreground-muted mt-1">
                         {assignment.subject}
                         {assignment.topic ? ` \u00b7 ${assignment.topic}` : ''} &middot;{' '}
                         {assignment.strictness.replace('_', ' ')}
@@ -349,28 +349,28 @@ export default function ClassroomView() {
                 ))}
               </ul>
             ) : (
-              <div className="p-6 text-center text-gray-500 text-sm">
+              <div className="p-6 text-center text-foreground-muted text-sm">
                 <p>{assignments.loading ? 'Loading assignments...' : 'No assignments yet.'}</p>
               </div>
             )}
           </div>
 
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-            <h2 className="text-lg font-semibold text-gray-900">Hint level distribution</h2>
-            <p className="text-xs text-gray-500 mt-1 mb-4">
+          <div className="bg-surface rounded-lg border border-border shadow-sm p-6">
+            <h2 className="text-lg font-semibold text-foreground">Hint level distribution</h2>
+            <p className="text-xs text-foreground-muted mt-1 mb-4">
               Highest hint level reached per session, on the 0 to 7 ladder.
             </p>
             <ul className="space-y-2">
               {analytics.hintLevelDistribution.map((bucket) => (
                 <li key={bucket.level} className="flex items-center gap-3">
-                  <span className="text-xs text-gray-500 w-10 shrink-0">L{bucket.level}</span>
-                  <span className="flex-1 bg-gray-100 rounded h-3 overflow-hidden">
+                  <span className="text-xs text-foreground-muted w-10 shrink-0">L{bucket.level}</span>
+                  <span className="flex-1 bg-surface-muted rounded h-3 overflow-hidden">
                     <span
                       className="block bg-blue-500 h-3"
                       style={{ width: `${(bucket.sessions / maxHintSessions) * 100}%` }}
                     />
                   </span>
-                  <span className="text-xs text-gray-600 w-6 text-right shrink-0">
+                  <span className="text-xs text-foreground-muted w-6 text-right shrink-0">
                     {bucket.sessions}
                   </span>
                 </li>
@@ -378,25 +378,25 @@ export default function ClassroomView() {
             </ul>
           </div>
 
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-            <h2 className="text-lg font-semibold text-gray-900">Common error categories</h2>
+          <div className="bg-surface rounded-lg border border-border shadow-sm p-6">
+            <h2 className="text-lg font-semibold text-foreground">Common error categories</h2>
             {analytics.commonErrorCategories.length === 0 ? (
-              <p className="text-sm text-gray-500 mt-2">No error categories recorded yet.</p>
+              <p className="text-sm text-foreground-muted mt-2">No error categories recorded yet.</p>
             ) : (
               <ul className="mt-3 space-y-2">
                 {analytics.commonErrorCategories.map((entry) => (
                   <li key={entry.category} className="flex justify-between text-sm">
-                    <span className="text-gray-700 capitalize">
+                    <span className="text-foreground-muted capitalize">
                       {entry.category.replace(/_/g, ' ')}
                     </span>
-                    <span className="text-gray-500">{entry.count}</span>
+                    <span className="text-foreground-muted">{entry.count}</span>
                   </li>
                 ))}
               </ul>
             )}
           </div>
 
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
+          <div className="bg-surface rounded-lg border border-border shadow-sm p-6">
             <CoverageNote coverage={analytics.evidenceCoverage} />
           </div>
         </div>

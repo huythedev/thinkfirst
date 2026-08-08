@@ -1,4 +1,4 @@
-import { initializeApp, getApps, App } from 'firebase-admin/app';
+import { initializeApp, getApps, App, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getStorage } from 'firebase-admin/storage';
@@ -46,11 +46,23 @@ let adminApp: App;
 
 if (!getApps().length) {
   const projectId = firebaseConfig.projectId;
-
-  adminApp = initializeApp({
+  const initConfig: any = {
     projectId,
     storageBucket: firebaseConfig.storageBucket,
-  });
+  };
+
+  // If a JSON string is provided via environment variable, parse and use it.
+  // This avoids needing a physical file for GOOGLE_APPLICATION_CREDENTIALS.
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+    try {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+      initConfig.credential = cert(serviceAccount);
+    } catch (error) {
+      console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY JSON:', error);
+    }
+  }
+
+  adminApp = initializeApp(initConfig);
 } else {
   adminApp = getApps()[0];
 }
@@ -60,3 +72,4 @@ const adminAuth = getAuth(adminApp);
 const adminStorage = getStorage(adminApp);
 
 export { adminDb, adminAuth, adminStorage, adminApp as admin, useEmulators };
+

@@ -43,9 +43,6 @@ const contentSecurityPolicy = [
   ].join(' '),
   // The Google sign-in popup renders in a frame.
   "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com",
-  // Nothing may frame this application: clickjacking a tutoring session into a
-  // hostile page would let it read what a child types.
-  "frame-ancestors 'none'",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -54,7 +51,6 @@ const contentSecurityPolicy = [
 const securityHeaders = [
   { key: 'Content-Security-Policy', value: contentSecurityPolicy },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
-  { key: 'X-Frame-Options', value: 'DENY' },
   // Section 25 minimization: a session URL contains a session id, and a full
   // referrer would hand it to every third party a page happens to reach.
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
@@ -72,6 +68,10 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },
+  allowedDevOrigins: [
+    'ais-dev-tp7wcazowuqpg6k2jcki3l-639123902441.asia-east1.run.app',
+    'ais-pre-tp7wcazowuqpg6k2jcki3l-639123902441.asia-east1.run.app'
+  ],
   // Allow access to remote image placeholder.
   images: {
     remotePatterns: [

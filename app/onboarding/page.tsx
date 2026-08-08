@@ -6,6 +6,7 @@ import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { Role } from '@/lib/types/user';
+import { getTranslation } from '@/lib/i18n';
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -17,6 +18,8 @@ export default function OnboardingPage() {
   const [grade, setGrade] = useState<number>(8);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const { t } = getTranslation(language);
 
   useEffect(() => {
     if (profile) {
@@ -80,15 +83,15 @@ export default function OnboardingPage() {
       router.push(role === 'teacher' ? '/teacher' : '/student');
     } catch (err: any) {
       console.error(err);
-      setError('Failed to create profile. Please try again.');
+      setError(t('onboarding.error'));
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
-      <div className="max-w-xl w-full bg-white rounded-2xl shadow-sm p-8 border border-gray-100">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Welcome to ThinkFirst</h1>
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
+      <div className="max-w-xl w-full bg-surface rounded-2xl shadow-sm p-8 border border-border">
+        <h1 className="text-2xl font-bold text-foreground mb-6">{t('onboarding.welcome')}</h1>
         
         {error && (
           <div className="mb-4 bg-red-50 text-red-700 p-3 rounded-lg text-sm">
@@ -98,21 +101,21 @@ export default function OnboardingPage() {
 
         {step === 1 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-medium text-gray-700">Are you a student or a teacher?</h2>
+            <h2 className="text-lg font-medium text-foreground-muted">{t('onboarding.roleQuestion')}</h2>
             <div className="grid grid-cols-2 gap-4">
               <button
                 onClick={() => setRole('student')}
-                className={`p-6 border-2 rounded-xl text-left transition-colors ${role === 'student' ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}
+                className={`p-6 border-2 rounded-xl text-left transition-colors ${role === 'student' ? 'border-blue-600 bg-blue-50' : 'border-border hover:border-border'}`}
               >
-                <div className="text-xl font-bold text-gray-900 mb-1">Student</div>
-                <div className="text-sm text-gray-500">I want to practice and learn</div>
+                <div className="text-xl font-bold text-foreground mb-1">{t('onboarding.student')}</div>
+                <div className="text-sm text-foreground-muted">{t('onboarding.studentDesc')}</div>
               </button>
               <button
                 onClick={() => setRole('teacher')}
-                className={`p-6 border-2 rounded-xl text-left transition-colors ${role === 'teacher' ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}
+                className={`p-6 border-2 rounded-xl text-left transition-colors ${role === 'teacher' ? 'border-blue-600 bg-blue-50' : 'border-border hover:border-border'}`}
               >
-                <div className="text-xl font-bold text-gray-900 mb-1">Teacher</div>
-                <div className="text-sm text-gray-500">I want to manage a classroom</div>
+                <div className="text-xl font-bold text-foreground mb-1">{t('onboarding.teacher')}</div>
+                <div className="text-sm text-foreground-muted">{t('onboarding.teacherDesc')}</div>
               </button>
             </div>
             
@@ -121,7 +124,7 @@ export default function OnboardingPage() {
               disabled={!role}
               className="w-full mt-6 py-3 bg-blue-600 text-white rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700"
             >
-              Continue
+              {t('onboarding.continue')}
             </button>
           </div>
         )}
@@ -129,19 +132,19 @@ export default function OnboardingPage() {
         {step === 2 && role === 'student' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-lg font-medium text-gray-700 mb-2">What is your grade level?</h2>
+              <h2 className="text-lg font-medium text-foreground-muted mb-2">{t('onboarding.gradeQuestion')}</h2>
               <select 
                 value={grade}
                 onChange={(e) => setGrade(Number(e.target.value))}
-                className="w-full p-3 border border-gray-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                className="w-full p-3 border border-border rounded-xl bg-surface focus:ring-2 focus:ring-blue-500 outline-none"
               >
                 {[6, 7, 8, 9].map(g => (
-                  <option key={g} value={g}>Grade {g}</option>
+                  <option key={g} value={g}>{t('onboarding.grade', { grade: g.toString() })}</option>
                 ))}
               </select>
             </div>
             <div>
-              <h2 className="text-lg font-medium text-gray-700 mb-2">Preferred Language</h2>
+              <h2 className="text-lg font-medium text-foreground-muted mb-2">{t('onboarding.langQuestion')}</h2>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2">
                   <input type="radio" checked={language === 'en'} onChange={() => setLanguage('en')} /> English
@@ -152,13 +155,13 @@ export default function OnboardingPage() {
               </div>
             </div>
             <div className="flex gap-4 pt-4">
-              <button onClick={() => setStep(1)} className="px-6 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50">Back</button>
+              <button onClick={() => setStep(1)} className="px-6 py-3 border border-border rounded-xl font-medium hover:bg-background">{t('onboarding.back')}</button>
               <button
                 onClick={handleComplete}
                 disabled={loading}
                 className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium disabled:opacity-50 hover:bg-blue-700"
               >
-                {loading ? 'Creating...' : 'Complete Setup'}
+                {loading ? t('onboarding.creating') : t('onboarding.complete')}
               </button>
             </div>
           </div>
@@ -167,7 +170,7 @@ export default function OnboardingPage() {
         {step === 2 && role === 'teacher' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-lg font-medium text-gray-700 mb-2">Preferred Language</h2>
+              <h2 className="text-lg font-medium text-foreground-muted mb-2">{t('onboarding.langQuestion')}</h2>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2">
                   <input type="radio" checked={language === 'en'} onChange={() => setLanguage('en')} /> English
@@ -178,13 +181,13 @@ export default function OnboardingPage() {
               </div>
             </div>
             <div className="flex gap-4 pt-4">
-              <button onClick={() => setStep(1)} className="px-6 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50">Back</button>
+              <button onClick={() => setStep(1)} className="px-6 py-3 border border-border rounded-xl font-medium hover:bg-background">{t('onboarding.back')}</button>
               <button
                 onClick={handleComplete}
                 disabled={loading}
                 className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium disabled:opacity-50 hover:bg-blue-700"
               >
-                {loading ? 'Creating...' : 'Complete Setup'}
+                {loading ? t('onboarding.creating') : t('onboarding.complete')}
               </button>
             </div>
           </div>
