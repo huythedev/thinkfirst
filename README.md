@@ -95,111 +95,124 @@ session 13. To generate your own from the running app, follow [Demo](#demo).
 ## Architecture
 
 ```mermaid
-flowchart TB
-    subgraph Browser
-        UI[Next.js App Router<br/>student and teacher surfaces]
+flowchart LR
+    %% ─────────────────────────────
+    %% Client
+    %% ─────────────────────────────
+    subgraph Client["Browser"]
+        UI["Next.js App Router<br/>Student & Teacher UI"]
     end
 
-    subgraph Server["Next.js server route handlers"]
-        AUTH[Session cookie exchange]
-        GUARD[Server-side auth<br/>role and ownership gate]
-        CHAT[POST /api/session/chat]
-        TEACH[GET /api/teacher/*]
-        IMG[POST /api/problem-images]
-        RL[Rate limiter<br/>Firestore-backed]
-    end
-
-    subgraph Policy["Deterministic layer, no model"]
-        RESOLVE[Trusted policy input resolver<br/>session → assignment → classroom → profile]
-        ENGINE[Policy engine<br/>section 18 rules R1 to R9]
-        VALID[Structured output validation]
-        MATH[Mathematical validator<br/>mathjs, allowlisted]
-        ENFORCE[Plan enforcement<br/>disclosure and policy checks]
-        SAFE[Safety composer<br/>constants only]
-    end
-
-    subgraph Model["Gemini via lib/ai/model-client.ts"]
-        CLS[Intent classifier]
-        EVAL[Attempt evaluator]
-        TUT[Tutor]
-        XFER[Transfer generator]
-        OCR[Image extraction]
-    end
-
-    subgraph Data["Firebase"]
-        FS[(Firestore<br/>13 collections)]
-        ST[(Storage<br/>problem images)]
-        FA[Firebase Auth]
-    end
-
-    %% Authentication
-    UI -->|sign in| FA
-    FA -->|Firebase ID token| AUTH
-    AUTH -->|HttpOnly session cookie| UI
-
+    %% ─────────────────────────────
     %% Main tutoring request
-    UI -->|message + sessionId only| CHAT
-    CHAT --> GUARD
-    GUARD --> RL
-    RL --> RESOLVE
+    %% ─────────────────────────────
+    subgraph API["Server Routes"]
+        CHAT["POST /api/session/chat"]
+        AUTHZ["Auth + rate limit"]
+        RESPONSE["Structured API response"]
+    end
 
-    %% Trusted server-side state
-    RESOLVE <--> FS
+    subgraph Decision["Server-authoritative Decision Layer"]
+        STATE["Load trusted state<br/>session · assignment · classroom · profile"]
+        ANALYZE["Analyze student turn<br/>intent + meaningful attempt"]
+        POLICY["Deterministic policy engine<br/>rules R1–R9"]
+    end
 
-    %% Analysis signals
-    RESOLVE --> CLS
-    RESOLVE --> EVAL
+    subgraph AI["Gemini"]
+        TUTOR["Tutor"]
+        TRANSFER["Transfer generator"]
+    end
 
-    CLS --> ENGINE
-    EVAL --> ENGINE
+    subgraph Guardrails["Post-generation Guardrails"]
+        VALIDATE["Schema validation"]
+        MATH["Mathematical validation"]
+        ENFORCE["Policy & disclosure enforcement"]
+    end
 
-    %% Deterministic policy chooses what may happen
-    ENGINE -->|safety turn| SAFE
-    ENGINE -->|ordinary tutoring turn| TUT
-    ENGINE -->|transfer due| XFER
+    subgraph Firebase["Firebase"]
+        FS[("Firestore<br/>13 collections")]
+        STORAGE[("Storage<br/>problem images")]
+        FBAUTH["Firebase Auth"]
+    end
 
-    %% Safety path
-    SAFE --> ENFORCE
+    %% Main chat flow
+    UI -->|"message + sessionId"| CHAT
+    CHAT --> AUTHZ
+    AUTHZ --> STATE
+    STATE <-->|"trusted state"| FS
+    STATE --> ANALYZE
+    ANALYZE --> POLICY
 
-    %% Tutor generation path
-    TUT --> VALID
-    VALID --> MATH
+    POLICY -->|"ordinary turn"| TUTOR
+    POLICY -->|"transfer due"| TRANSFER
+    POLICY -->|"safety turn"| ENFORCE
+
+    TUTOR --> VALIDATE
+    TRANSFER --> VALIDATE
+    VALIDATE --> MATH
     MATH --> ENFORCE
 
-    %% Transfer generation path
-    XFER --> VALID
+    ENFORCE -->|"server-authored turn + evidence"| FS
+    ENFORCE --> RESPONSE
+    RESPONSE --> UI
 
-    %% Server-authoritative persistence
-    ENFORCE -->|server-authored turn and evidence| FS
+    %% ─────────────────────────────
+    %% Authentication
+    %% ─────────────────────────────
+    subgraph Auth["Authentication"]
+        SESSION["Session cookie exchange"]
+    end
 
-    %% Response to client
-    ENFORCE -->|validated structured response| CHAT
-    CHAT --> UI
+    UI -->|"sign in"| FBAUTH
+    FBAUTH -->|"ID token"| SESSION
+    SESSION -->|"HttpOnly session cookie"| UI
 
-    %% Teacher API
+    %% ─────────────────────────────
+    %% Teacher access
+    %% ─────────────────────────────
+    subgraph Teacher["Teacher API"]
+        TEACH["GET /api/teacher/*"]
+        TCHECK["Teacher role +<br/>resource ownership"]
+    end
+
     UI --> TEACH
-    TEACH --> GUARD
-    TEACH -->|Admin SDK after role and ownership checks| FS
-    TEACH --> UI
+    TEACH --> TCHECK
+    TCHECK -->|"Admin SDK"| FS
 
+    %% ─────────────────────────────
     %% Problem image flow
+    %% ─────────────────────────────
+    subgraph Images["Problem Image Flow"]
+        IMG["POST /api/problem-images"]
+        IVALID["Auth + file validation"]
+        OCR["Gemini image extraction"]
+        CONFIRM["Extracted text + confidence<br/>student confirms"]
+    end
+
     UI --> IMG
-    IMG --> GUARD
-    IMG --> RL
-    IMG -->|validate type, size, ownership| ST
-    IMG --> OCR
-    OCR --> VALID
-    VALID -->|extracted text + confidence| IMG
-    IMG -->|student confirmation required| UI
+    IMG --> IVALID
+    IVALID --> STORAGE
+    IVALID --> OCR
+    OCR --> CONFIRM
+    CONFIRM --> UI
 ```
 
-Two things that diagram exists to make obvious:
+The core tutoring path is intentionally server-authoritative:
 
-- The **policy engine sits between the classifier and the tutor**, and
-   enforcement sits after the tutor. The model never decides disclosure.
-- A **safety turn never reaches the tutor model at all**. It is composed from
-   constants, because the one turn that must not be improvised is the one where a
-   child says something is wrong.
+```text
+Student message
+→ authenticated server route
+→ trusted session state
+→ turn analysis
+→ deterministic policy
+→ Gemini generation
+→ validation and enforcement
+→ server-authored persistence
+→ response
+```
+
+The client never decides trusted policy inputs such as learning mode, strictness, hint permissions, assignment policy, or score evidence.
+
 
 ## Technology stack
 
