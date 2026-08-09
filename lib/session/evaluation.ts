@@ -32,7 +32,7 @@ import {
 } from '@/lib/types/ai/transfer-validation';
 import type { SemanticValidation } from '@/lib/types/ai/semantic-validation';
 import { validateAnswer, type ValidationVerdict } from '@/lib/math/validation';
-import { TransferOutcome } from '@/lib/types/scoring';
+import type { CorrectnessSource, TransferOutcome } from '@/lib/types/scoring';
 
 /**
  * Attempt evaluation, explanation evaluation, transfer generation and transfer
@@ -209,11 +209,6 @@ function validationMetadata(input: {
 /**
  * Evaluate one student attempt, then independently validate the evaluator's
  * claims before they can become scoring evidence.
- *
- * If either model call fails, either schema parse fails, or the independent
- * verifier rejects the evaluator judgement, the observation becomes unavailable
- * with confidence 0. Missing evidence reduces coverage; it never turns into a
- * confident score.
  */
 export async function evaluateAttempt(context: EvaluationContext): Promise<AttemptEvaluationResult> {
   const configuredModel = configuredGeminiModel('evaluator');
@@ -424,7 +419,7 @@ export async function generateTransferProblem(context: {
 
 export interface TransferOutcomeResult {
   outcome: TransferOutcome | null;
-  correctnessSource: 'deterministic' | 'evaluator' | 'unavailable';
+  correctnessSource: CorrectnessSource;
   confidence: number;
 }
 
@@ -434,11 +429,7 @@ function correctTransferOutcome(hintDelta: number): TransferOutcome {
   return 'one_conceptual_hint';
 }
 
-/**
- * Pure deterministic/evaluator fallback retained for scoring tests and as a
- * local signal. Production route code should call `validateTransferOutcome`,
- * which independently verifies the judgement with Gemini before storing it.
- */
+/** Pure deterministic/evaluator fallback retained for scoring tests and local signal use. */
 export function resolveTransferOutcome(input: {
   studentAnswer: string | null;
   referenceAnswer: string | null;
@@ -499,7 +490,7 @@ export interface ValidatedTransferOutcome extends TransferOutcomeResult {
  * an independent Gemini verifier agrees exactly. A disagreement or an unable
  * verifier is unavailable rather than a confident student penalty.
  *
- * When the local checker cannot decide, the independent Gemini judgement is the
+ * When the local checker cannot decide, the independent Gemini validator is the
  * model-based path required by §56.2 and remains capped at confidence 0.7.
  */
 export async function validateTransferOutcome(input: {
@@ -585,28 +576,28 @@ export async function validateTransferOutcome(input: {
     case 'correct':
       return {
         outcome: correctTransferOutcome(hintDelta),
-        correctnessSource: 'evaluator',
+        correctnessSource: 'validator',
         confidence: modelConfidence,
         semanticValidation: metadata,
       };
     case 'partial':
       return {
         outcome: 'partial',
-        correctnessSource: 'evaluator',
+        correctnessSource: 'validator',
         confidence: modelConfidence,
         semanticValidation: metadata,
       };
     case 'incorrect':
       return {
         outcome: 'attempted_incorrect',
-        correctnessSource: 'evaluator',
+        correctnessSource: 'validator',
         confidence: modelConfidence,
         semanticValidation: metadata,
       };
     case 'unable':
       return {
         outcome: 'unable_to_begin',
-        correctnessSource: 'evaluator',
+        correctnessSource: 'validator',
         confidence: modelConfidence,
         semanticValidation: metadata,
       };
@@ -620,13 +611,17 @@ export async function validateTransferOutcome(input: {
   }
 }
 
-/**
- * Persist one evaluation to `studentAttempts` under Admin credentials.
- * Semantic-verifier provenance is stored alongside the evaluator output so
- * recomputation remains deterministic and an audit can distinguish generated
- * evidence from independently verified evidence.
- */
-export async function recordAttemptEvaluation(input: {
+interface TransferAttemptPersistence {
+  problemId: string;
+  outcome: TransferOutcome | null;
+  correctnessSource: CorrectnessSource;
+  confidence: number;
+  studentAnswer: string | null;
+  semanticValidation?: SemanticValidationMetadata | null;
+}
+
+function attemptDocument(input: {
+  id: string;
   sessionId: string;
   studentId: string;
   attemptText: string;
@@ -635,19 +630,10 @@ export async function recordAttemptEvaluation(input: {
   available: boolean;
   modelName: string;
   semanticValidation?: SemanticValidationMetadata | null;
-  transfer?: {
-    outcome: TransferOutcome | null;
-    correctnessSource: 'deterministic' | 'evaluator' | 'unavailable';
-    confidence: number;
-    referenceAnswer: string | null;
-    studentAnswer: string | null;
-    semanticValidation?: SemanticValidationMetadata | null;
-  };
-}): Promise<string> {
-  const ref = adminDb.collection('studentAttempts').doc();
-
-  await ref.set({
-    id: ref.id,
+  transfer?: TransferAttemptPersistence;
+}) {
+  return {
+    id: input.id,
     sessionId: input.sessionId,
     studentId: input.studentId,
     attemptText: input.attemptText.slice(0, 20000),
@@ -672,7 +658,8 @@ export async function recordAttemptEvaluation(input: {
             transferOutcome: input.transfer.outcome,
             correctnessSource: input.transfer.correctnessSource,
             correctnessConfidence: input.transfer.confidence,
-            referenceAnswer: input.transfer.referenceAnswer,
+            // Never copy the hidden reference answer into this client-readable
+            // collection. It stays exclusively in `transferProblems`.
             studentAnswer: input.transfer.studentAnswer,
             transferSemanticValidation: input.transfer.semanticValidation ?? null,
           }
@@ -682,7 +669,48 @@ export async function recordAttemptEvaluation(input: {
     transferPromptVersion: TRANSFER_PROMPT_VERSION,
     modelName: input.modelName,
     createdAt: FieldValue.serverTimestamp(),
+  };
+}
+
+/**
+ * Persist one evaluation under Admin credentials.
+ *
+ * Transfer evaluations use a deterministic id and atomically mark the hidden
+ * transfer problem evaluated in the same batch. A retry can overwrite the same
+ * evidence document but cannot create duplicate scoring evidence or leave a
+ * successful attempt attached to a still-pending transfer.
+ */
+export async function recordAttemptEvaluation(input: {
+  sessionId: string;
+  studentId: string;
+  attemptText: string;
+  attemptType: AttemptType;
+  evaluation: AttemptEvaluation;
+  available: boolean;
+  modelName: string;
+  semanticValidation?: SemanticValidationMetadata | null;
+  transfer?: TransferAttemptPersistence;
+}): Promise<string> {
+  const attemptId = input.transfer
+    ? `${input.transfer.problemId}__evaluation`
+    : adminDb.collection('studentAttempts').doc().id;
+  const ref = adminDb.collection('studentAttempts').doc(attemptId);
+  const data = attemptDocument({ ...input, id: attemptId });
+
+  if (!input.transfer) {
+    await ref.set(data);
+    return ref.id;
+  }
+
+  const transferRef = adminDb.collection('transferProblems').doc(input.transfer.problemId);
+  const batch = adminDb.batch();
+  batch.set(ref, data);
+  batch.update(transferRef, {
+    status: 'evaluated',
+    evaluatedAt: FieldValue.serverTimestamp(),
+    answerSemanticValidation: input.transfer.semanticValidation ?? null,
   });
+  await batch.commit();
 
   return ref.id;
 }
