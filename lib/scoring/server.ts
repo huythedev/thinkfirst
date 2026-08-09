@@ -54,6 +54,18 @@ function occurredAtOf(session: RawSession): number {
 }
 
 /**
+ * Student turns were client-creatable before the server-authored transcript
+ * cutover. Reading those legacy documents through Admin credentials does not make
+ * them trustworthy, so they are excluded from production scoring unless they
+ * carry the server marker written by `/api/session/chat`. Assistant/system turns
+ * were already server-only and remain trusted.
+ */
+function isTrustedScoringTurn(data: Record<string, unknown>): boolean {
+  const actor = data.actor;
+  return actor !== 'student' || data.serverAuthored === true;
+}
+
+/**
  * Loads a student's sessions, transcripts and stored attempt evaluations, then
  * derives metrics for each session.
  *
@@ -97,7 +109,9 @@ export async function loadSessionMetrics(studentId: string): Promise<SessionMetr
   const turnsBySession = new Map<string, RawTurn[]>();
   for (const batch of turnBatches) {
     for (const docSnap of batch.docs) {
-      const turn = { id: docSnap.id, ...(docSnap.data() as RawTurn) };
+      const data = docSnap.data() as Record<string, unknown>;
+      if (!isTrustedScoringTurn(data)) continue;
+      const turn = { id: docSnap.id, ...(data as RawTurn) };
       if (!turn.sessionId) continue;
       const bucket = turnsBySession.get(turn.sessionId);
       if (bucket) bucket.push(turn);
