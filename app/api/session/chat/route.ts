@@ -83,14 +83,11 @@ const tutorSchema: Schema = {
 };
 
 export async function POST(req: NextRequest) {
-  // Captured outside the try so the catch can flag the session: by then the
-  // request body has been consumed and cannot be re-read.
   let failedSessionId: string | null = null;
 
   try {
     const auth = await verifyRequest(req);
     if (auth.verificationUnavailable) {
-      // Failing closed: without credentials the server cannot tell who is calling.
       return NextResponse.json(
         { error: 'Server is not configured to verify authentication.' },
         { status: 503 },
@@ -100,10 +97,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
     }
 
-    // Rate limit *after* authentication, deliberately: the per-user key is the
-    // verified uid, so an unauthenticated flood cannot consume a real student's
-    // quota, and the counter is not spent on requests that were going to be
-    // refused anyway. Before any model call, because the point is to bound spend.
     const limit = await checkRateLimit({
       policy: RATE_LIMITS.tutorChat,
       uid: auth.uid,
@@ -130,21 +123,12 @@ export async function POST(req: NextRequest) {
     const { message, sessionId } = parsed.data;
     failedSessionId = sessionId;
 
-    // Every policy input is read server-side. The request body carries only the
-    // session id and the student's message; section 41.1 forbids trusting the
-    // rest, and `chatRequestSchema` no longer accepts it.
     const resolution = await resolvePolicyInputs(sessionId, auth.uid);
     if (resolution.status === 'not_found' || resolution.status === 'forbidden') {
-      // Another student's session gets the same body as a miss, so the endpoint
-      // does not confirm that the id exists.
       return NextResponse.json({ error: 'Session not found.' }, { status: 404 });
     }
 
     const policy = resolution.inputs;
-
-    // The transcript is a policy input too: the classifier derives attempt
-    // quality from it, and attempt quality gates disclosure. So it is read from
-    // Firestore rather than accepted from the caller.
     const transcript = await loadTranscript(sessionId);
     const conversationHistory = transcript
       .map((turn) => `${turn.actor === 'student' ? 'Student' : 'Tutor'}: ${turn.content}`)
@@ -156,16 +140,10 @@ export async function POST(req: NextRequest) {
       `Student: ${message}`;
 
     const startedAt = Date.now();
-
-    // Resolved per request rather than at module scope, so a deterministic
-    // driver can be selected by the evaluation harness without the shipping
-    // code depending on a fixture. Production always resolves to the live
-    // client; see `lib/ai/model-client.ts`.
     const ai = getModelClient();
 
-    // 2. Classify intent. Static instructions are a system instruction; the
-    // untrusted transcript stays in the user turn rather than being concatenated
-    // into the same instruction string.
+    // Classifier output is untrusted data. The static instruction stays in the
+    // system channel while the transcript remains in the user turn.
     const classifierModel = configuredGeminiModel('classifier');
     const intentResponse = await ai.models.generateContent({
       model: classifierModel,
@@ -177,17 +155,14 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Revalidated server-side: the provider's `responseSchema` is a hint, not a
-    // guarantee. A classifier that returns nothing usable falls back to the most
-    // restrictive ordinary analysis rather than to an empty object cast to type.
     const intentParse = parseIntentAnalysis(intentResponse.text);
     if (!intentParse.ok) {
       console.warn('Classifier output rejected by server-side validation:', intentParse.detail);
     }
     const intentData = intentParse.ok ? intentParse.value : SAFE_FALLBACK_INTENT;
 
-    // 3. Apply the deterministic policy, on trusted inputs only. Gemini may
-    // classify or semantically verify content, but it never grants permissions.
+    // Gemini may classify content, but this deterministic policy layer alone
+    // decides disclosure permission and hint ceilings.
     const responsePlan = generateResponsePlan(intentData, {
       mode: policy.mode,
       strictness: policy.strictness,
@@ -199,8 +174,8 @@ export async function POST(req: NextRequest) {
       extractionConfidence: policy.extractionConfirmed ? undefined : policy.extractionConfidence,
     });
 
-    // R8, enforced rather than requested. Safety output remains deterministic:
-    // semantic-verifier preference never moves authorization/safety composition
+    // Safety text remains deterministic after classification. The semantic
+    // verifier preference never moves crisis response composition or permission
     // onto a model-controlled path.
     if (responsePlan.action === 'safety_redirect' && intentData.safetyCategory !== 'none') {
       return await handleSafetyTurn({
@@ -218,9 +193,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 4. Generate the tutor response inside deterministic disclosure constraints.
     const tutorModel = configuredGeminiModel('tutor');
-
     const tutorSystemContext = `Grade: ${policy.grade}
 Language: ${policy.language}
 Subject: ${policy.subject}
@@ -243,8 +216,6 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
       },
     });
 
-    // 5. Revalidate, then enforce the plan in code. A model that ignores the
-    // plan is corrected here; the prompt asking it to comply is not enforcement.
     const tutorParse = parseTutorResponse(tutorResponse.text);
     if (!tutorParse.ok) {
       console.error('Tutor output rejected by server-side validation:', tutorParse.detail);
@@ -265,10 +236,9 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
       );
     }
 
-    // Transfer problems have their own generator and hidden validated reference
-    // answer. Accepting a transfer invented by the tutor would show one problem
-    // while scoring against another, so that output is refused rather than
-    // relabelled.
+    // The dedicated transfer generator owns transfer problem/reference-answer
+    // pairs. A tutor-invented transfer would let the student see problem A while
+    // scoring against hidden problem B, so fail closed instead of relabelling it.
     if (tutorData.responseType === 'transfer_problem') {
       console.error('Tutor attempted to emit a transfer problem outside the dedicated generator.');
       await markSessionSystemError(sessionId).catch(() => undefined);
@@ -278,9 +248,9 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
       );
     }
 
-    // Gemini-first semantic verification of the actual post-enforcement text.
-    // The validator cannot widen the plan; it can only approve the content or
-    // cause this turn to fail closed before anything is persisted or shown.
+    // Semantic correctness is independently checked after deterministic response
+    // enforcement and before the text is persisted or shown. The verifier can
+    // reject content but can never widen the response plan.
     const tutorValidation = await runSemanticValidation({
       validationKind: 'tutor_response',
       data: {
@@ -307,12 +277,8 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
       );
     }
 
-    // The hint ladder advances here, on the server, never from the browser. The
-    // plan's ceiling is persisted rather than the model's self-report, so a model
-    // that overshoots cannot ratchet the session forward.
     const persistedHintLevel = nextHintLevel(policy.currentHintLevel, responsePlan.allowedHintLevel);
     const latencyMs = Date.now() - startedAt;
-
     const nextSequence = transcript.length + 1;
     const turnRef = adminDb.collection('sessionTurns').doc();
 
@@ -364,7 +330,6 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
       }),
     ]);
 
-    // Learning evidence is best-effort and never blocks a verified tutoring turn.
     const evidence = await recordLearningEvidence({
       sessionId,
       studentId: auth.uid,
@@ -396,8 +361,6 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
   } catch (error: any) {
     console.error('Chat error:', error);
 
-    // §56.4: a session that failed with a system error is excluded from scoring
-    // entirely, not scored as abandonment.
     if (failedSessionId) {
       await markSessionSystemError(failedSessionId).catch(() => undefined);
     }
@@ -428,11 +391,9 @@ interface SafetyTurnInput {
 }
 
 /**
- * Handles a turn the classifier flagged as unsafe.
- *
- * 1. No generative response model: safety text comes from verified constants.
- * 2. No scoring: a disclosure is not an academic attempt.
- * 3. No hint-ladder advance: a disclosure cannot reset or penalize progress.
+ * Safety turns use deterministic text, are excluded from academic scoring, and
+ * do not move the hint ladder. Classification may be model-produced; response
+ * content and policy consequence are not.
  */
 async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
   const safety = composeSafetyResponse(input.category, input.language);
@@ -558,9 +519,9 @@ interface EvidenceSummary {
 
 /**
  * Record learning evidence for this turn, then recompute and persist the trusted
- * score. Model-produced scoring evidence is independently Gemini-validated before
- * persistence; recomputation later remains deterministic because the validated
- * result and its provenance are stored once here.
+ * score. The evaluator sees the student evidence that existed before the current
+ * tutor reply, so the tutor cannot leak a correction into the judgement of the
+ * student's preceding attempt.
  */
 async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSummary> {
   const summary: EvidenceSummary = {
@@ -572,9 +533,7 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
   };
 
   try {
-    const transcript =
-      input.conversationHistory + `\nStudent: ${input.message}` +
-      `\nTutor: ${input.tutorData.messageMarkdown}`;
+    const transcript = input.conversationHistory + `\nStudent: ${input.message}`;
 
     const evaluation = await evaluateAttempt({
       problem: input.policy.originalProblem,
@@ -606,9 +565,6 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
     });
     summary.attemptEvaluated = evaluation.available;
 
-    // Evaluate the most recent actual issued transfer. The generated public
-    // problem is loaded with the hidden answer so Gemini verifies the student's
-    // answer against the same problem they actually saw.
     const pendingTransfer = await loadPendingTransfer(input.sessionId);
     if (pendingTransfer) {
       const studentAnswer = evaluation.evaluation.extractedAnswer ?? input.message;
@@ -646,10 +602,8 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
       });
     }
 
-    // A new transfer becomes "issued" only after two things are both true:
-    // (1) Gemini independently validated its hidden reference solution, and
-    // (2) the exact validated problemMarkdown was written as an assistant turn
-    // that the student's transcript listener can actually display.
+    // A transfer is considered issued only after the exact Gemini-validated
+    // problem is persisted as a visible assistant turn.
     if (input.responsePlan.generateTransferProblem) {
       const generated = await generateTransferProblem({
         problem: input.policy.originalProblem,
@@ -705,13 +659,14 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
         ]);
         summary.transferIssued = true;
       } else {
-        // A required transfer generation/validation failure is a technical system
-        // failure, not a student refusal. Exclude the session rather than letting
-        // responsePlan.generateTransferProblem be misread as a declined task.
         await markSessionSystemError(input.sessionId).catch(() => undefined);
       }
     }
   } catch (error) {
+    // A partial evidence-persistence failure is a system fault. Mark the session
+    // so scoring excludes it rather than turning missing/half-written evidence
+    // into student behavior.
+    await markSessionSystemError(input.sessionId).catch(() => undefined);
     console.warn(
       'Learning evidence collection failed:',
       error instanceof Error ? error.message : 'unknown error',
@@ -724,6 +679,7 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
     summary.coverage = persisted.sessionScore.coverage;
     summary.suppressed = persisted.profile.suppressed;
   } catch (error) {
+    await markSessionSystemError(input.sessionId).catch(() => undefined);
     console.error(
       'Failed to persist independence snapshot:',
       error instanceof Error ? error.message : 'unknown error',
