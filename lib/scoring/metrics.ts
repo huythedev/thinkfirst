@@ -14,14 +14,7 @@ import {
  *
  * §56.1 is emphatic that extraction must record **why** an observation holds its
  * value, using four states that must never be conflated: `observed`,
- * `not_applicable`, `declined` and `unavailable`. v1 had only "measured or not",
- * which is the root cause of the three severe measured defects:
- *
- *   - no `declined` state, so skipping a transfer task beat attempting it (1);
- *   - no distinction between thin and absent evidence, so one behavior produced
- *     a confident band (2);
- *   - missing instrumentation read as absent behavior, so a transcript where the
- *     tutor never wrote `hintLevel` scored 100 on a measured weight of 40 (3).
+ * `not_applicable`, `declined` and `unavailable`.
  *
  * Nothing here scores anything. Judgment belongs to stage 2.
  */
@@ -62,11 +55,7 @@ export interface RawSession {
   endedWithSystemError?: boolean;
 }
 
-/**
- * A persisted `studentAttempts` evaluation. Rubric judgments are read from
- * storage rather than recomputed, because §56.4 requires recomputation from
- * stored metrics to be byte-identical.
- */
+/** Persisted `studentAttempts` evidence used for deterministic recomputation. */
 export interface RawAttempt {
   id?: string;
   sessionId?: string;
@@ -148,11 +137,6 @@ function resolveDifficulty(
   return { difficulty: DEFAULT_DIFFICULTY, source: 'grade_default' };
 }
 
-/**
- * Hint evidence. The distinction that matters: a session where tutor turns
- * exist but none carries a `hintLevel` is `unavailable`, while a session with no
- * tutor turns at all had no opportunity, so it is `not_applicable`.
- */
 function resolveHintEvidence(turns: RawTurn[]): {
   highestHintUsed: number | null;
   allowedHintLevel: number | null;
@@ -184,9 +168,6 @@ function resolveHintEvidence(turns: RawTurn[]): {
   }
 
   if (levels.length === 0) {
-    // Measured defect 3. The tutor answered, so the behavior existed; the
-    // telemetry did not record it. That reduces coverage and shows up in the
-    // instrumentation-health metric rather than scoring full marks.
     return {
       highestHintUsed: null,
       allowedHintLevel: allowed.length > 0 ? Math.max(...allowed) : null,
@@ -213,19 +194,12 @@ function firstAttemptEvidence(
 
   const first = analyses[0];
   if (!first || first.attemptQuality === undefined) {
-    // The student spoke but nothing classified the message. Not "no attempt".
     return { quality: null, state: 'unavailable' };
   }
 
   return { quality: first.attemptQuality, state: 'observed' };
 }
 
-/**
- * Reasoning evidence comes from a persisted evaluator rubric, never from a turn
- * ratio. When the tutor asked for an explanation (`requiresExplanation`) and no
- * rubric exists but the student did keep talking, the rubric is `unavailable`;
- * when the student never replied at all, it is `declined`.
- */
 function reasoningEvidence(
   turns: RawTurn[],
   attempts: RawAttempt[],
@@ -317,10 +291,10 @@ function verificationEvidence(
 }
 
 /**
- * Transfer evidence. §56.2 forbids inferring correctness from fluency, so the
- * outcome is taken only from a stored evaluation whose correctness was
- * established either deterministically or by the evaluator. Without one, the
- * component is `unavailable`, which is the fix for measured defect 6.
+ * Transfer evidence is tied to an actual delivered transfer turn, not to a plan
+ * that merely intended to generate one. `generateTransferProblem: true` can fail
+ * during generation/validation and must never by itself create a student
+ * obligation or a declined score.
  */
 function transferEvidence(
   turns: RawTurn[],
@@ -328,9 +302,8 @@ function transferEvidence(
 ): { transfer: TransferEvidence; state: EvidenceState } {
   const transferIndex = turns.findIndex(
     (turn) =>
-      turn.tutorMetadata?.responseType === 'transfer_problem' ||
-      turn.responsePlan?.['generateTransferProblem'] === true ||
-      turn.responsePlan?.['action'] === 'start_transfer_task',
+      turn.actor === 'assistant' &&
+      turn.tutorMetadata?.responseType === 'transfer_problem',
   );
 
   const empty: TransferEvidence = {
@@ -352,9 +325,6 @@ function transferEvidence(
     .some((turn) => turn.actor === 'student');
 
   if (!repliedAfter) {
-    // §56.1: the opportunity arose and the student walked away. Scored low, not
-    // excluded. Excluding it is measured defect 1, which made disengagement the
-    // score-maximizing strategy.
     return {
       transfer: { ...empty, issued: true, declined: true, outcome: 'declined', confidence: 1 },
       state: 'declined',
@@ -391,14 +361,6 @@ function transferEvidence(
   };
 }
 
-/**
- * Turns one session, its transcript and its stored attempt evaluations into the
- * observations the Independence Score is computed from.
- *
- * `attempts` carries the persisted evaluator judgments. They are read rather
- * than re-requested because §56.4 requires recomputation from stored metrics to
- * be deterministic; asking a model again at read time would not be.
- */
 export function deriveSessionMetrics(
   session: RawSession,
   turns: RawTurn[],
