@@ -26,8 +26,6 @@ export interface RawTurn {
   actor?: 'student' | 'assistant' | 'system' | string;
   content?: string;
   createdAt?: unknown;
-  /** New student turns are written by the server route; legacy client turns lack this marker. */
-  serverAuthored?: boolean;
   intentAnalysis?: Partial<IntentAnalysis>;
   responsePlan?: Record<string, unknown>;
   tutorMetadata?: {
@@ -186,109 +184,266 @@ function resolveHintEvidence(turns: RawTurn[]): {
   };
 }
 
-function rubricState<T>(
-  attempts: RawAttempt[],
-  type: RawAttempt['attemptType'],
-  selector: (attempt: RawAttempt) => T | undefined,
-): { value: T | null; state: EvidenceState } {
-  const relevant = attempts.filter((attempt) => attempt.attemptType === type);
-  if (relevant.length === 0) return { value: null, state: 'not_applicable' };
-
-  for (let index = relevant.length - 1; index >= 0; index -= 1) {
-    const value = selector(relevant[index]);
-    if (value !== undefined) return { value, state: 'observed' };
+function firstAttemptEvidence(
+  analyses: Partial<IntentAnalysis>[],
+  studentTurnCount: number,
+): { quality: AttemptQuality | null; state: EvidenceState } {
+  if (studentTurnCount === 0) {
+    return { quality: null, state: 'not_applicable' };
   }
 
-  return { value: null, state: 'unavailable' };
+  const first = analyses[0];
+  if (!first || first.attemptQuality === undefined) {
+    return { quality: null, state: 'unavailable' };
+  }
+
+  return { quality: first.attemptQuality, state: 'observed' };
 }
 
-function resolveTransferEvidence(attempts: RawAttempt[]): TransferEvidence {
-  const transferAttempts = attempts.filter((attempt) => attempt.attemptType === 'transfer');
-  if (transferAttempts.length === 0) {
-    return { outcome: null, state: 'not_applicable', correctnessSource: null, confidence: null };
+function reasoningEvidence(
+  turns: RawTurn[],
+  attempts: RawAttempt[],
+  studentTurnCount: number,
+): { rubric: ReasoningRubric | null; state: EvidenceState } {
+  const stored = attempts.find(
+    (attempt) => attempt.attemptType === 'explanation' && attempt.evaluation?.reasoningRubric,
+  );
+
+  if (stored?.evaluation?.reasoningRubric) {
+    const raw = stored.evaluation.reasoningRubric;
+    return {
+      rubric: {
+        identifiedMethod: raw.identifiedMethod === true,
+        explainedIntermediateStep: raw.explainedIntermediateStep === true,
+        connectedToConcept: raw.connectedToConcept === true,
+        interpretedResult: raw.interpretedResult === true,
+        confidence: typeof raw.confidence === 'number' ? raw.confidence : 0.5,
+        evidenceSpans: Array.isArray(raw.evidenceSpans) ? raw.evidenceSpans : [],
+      },
+      state: 'observed',
+    };
   }
 
-  const latest = transferAttempts[transferAttempts.length - 1];
-  const outcome = latest.evaluation?.transferOutcome;
-  if (!outcome) {
-    return { outcome: null, state: 'unavailable', correctnessSource: null, confidence: null };
+  const explanationRequested = turns.some(
+    (turn) => turn.responsePlan?.['requiresExplanation'] === true,
+  );
+
+  if (!explanationRequested) {
+    return { rubric: null, state: 'not_applicable' };
   }
+
+  const requestIndex = turns.findIndex(
+    (turn) => turn.responsePlan?.['requiresExplanation'] === true,
+  );
+  const repliedAfter = turns
+    .slice(requestIndex + 1)
+    .some((turn) => turn.actor === 'student');
+
+  if (!repliedAfter && studentTurnCount > 0) {
+    return { rubric: null, state: 'declined' };
+  }
+
+  return { rubric: null, state: 'unavailable' };
+}
+
+function verificationEvidence(
+  session: RawSession,
+  turns: RawTurn[],
+  attempts: RawAttempt[],
+): { rubric: VerificationRubric | null; state: EvidenceState } {
+  const stored = attempts.find(
+    (attempt) => attempt.attemptType === 'verification' && attempt.evaluation?.verificationRubric,
+  );
+
+  if (stored?.evaluation?.verificationRubric) {
+    const raw = stored.evaluation.verificationRubric;
+    return {
+      rubric: {
+        recomputedOrSubstituted: raw.recomputedOrSubstituted === true,
+        checkedUnitsOrPlausibility: raw.checkedUnitsOrPlausibility === true,
+        statedAssumptionOrLimitation: raw.statedAssumptionOrLimitation === true,
+        correctlyJudgedContent: raw.correctlyJudgedContent === true,
+        confidence: typeof raw.confidence === 'number' ? raw.confidence : 0.5,
+      },
+      state: 'observed',
+    };
+  }
+
+  const requestIndex = turns.findIndex(
+    (turn) => turn.responsePlan?.['requiresVerification'] === true,
+  );
+  const prompted = session.mode === 'verify' || requestIndex !== -1;
+
+  if (!prompted) {
+    return { rubric: null, state: 'not_applicable' };
+  }
+
+  const repliedAfter =
+    requestIndex === -1
+      ? turns.some((turn) => turn.actor === 'student')
+      : turns.slice(requestIndex + 1).some((turn) => turn.actor === 'student');
+
+  if (!repliedAfter) {
+    return { rubric: null, state: 'declined' };
+  }
+
+  return { rubric: null, state: 'unavailable' };
+}
+
+/**
+ * Transfer evidence is tied to an actual delivered transfer turn, not to a plan
+ * that merely intended to generate one. `generateTransferProblem: true` can fail
+ * during generation/validation and must never by itself create a student
+ * obligation or a declined score.
+ */
+function transferEvidence(
+  turns: RawTurn[],
+  attempts: RawAttempt[],
+): { transfer: TransferEvidence; state: EvidenceState } {
+  const transferIndex = turns.findIndex(
+    (turn) =>
+      turn.actor === 'assistant' &&
+      turn.tutorMetadata?.responseType === 'transfer_problem',
+  );
+
+  const empty: TransferEvidence = {
+    issued: false,
+    declined: false,
+    outcome: null,
+    correctnessSource: 'unavailable',
+    confidence: 0,
+    referenceAnswer: null,
+    studentAnswer: null,
+  };
+
+  if (transferIndex === -1) {
+    return { transfer: empty, state: 'not_applicable' };
+  }
+
+  const repliedAfter = turns
+    .slice(transferIndex + 1)
+    .some((turn) => turn.actor === 'student');
+
+  if (!repliedAfter) {
+    return {
+      transfer: { ...empty, issued: true, declined: true, outcome: 'declined', confidence: 1 },
+      state: 'declined',
+    };
+  }
+
+  const stored = attempts.find(
+    (attempt) => attempt.attemptType === 'transfer' && attempt.evaluation?.transferOutcome,
+  );
+
+  if (!stored?.evaluation?.transferOutcome) {
+    return { transfer: { ...empty, issued: true }, state: 'unavailable' };
+  }
+
+  const evaluation = stored.evaluation;
+  const source = evaluation.correctnessSource ?? 'unavailable';
 
   return {
-    outcome,
-    state: outcome === 'declined' ? 'declined' : 'observed',
-    correctnessSource: latest.evaluation?.correctnessSource ?? null,
-    confidence:
-      typeof latest.evaluation?.correctnessConfidence === 'number'
-        ? latest.evaluation.correctnessConfidence
-        : null,
+    transfer: {
+      issued: true,
+      declined: false,
+      outcome: evaluation.transferOutcome ?? null,
+      correctnessSource: source,
+      confidence:
+        typeof evaluation.correctnessConfidence === 'number'
+          ? evaluation.correctnessConfidence
+          : source === 'deterministic'
+            ? 1
+            : 0.7,
+      referenceAnswer: evaluation.referenceAnswer ?? null,
+      studentAnswer: evaluation.studentAnswer ?? null,
+    },
+    state: source === 'unavailable' ? 'unavailable' : 'observed',
   };
 }
 
 export function deriveSessionMetrics(
   session: RawSession,
-  rawTurns: RawTurn[],
-  rawAttempts: RawAttempt[],
+  turns: RawTurn[],
+  attempts: RawAttempt[] = [],
 ): SessionMetrics {
-  const turns = [...rawTurns].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
-  const attempts = [...rawAttempts];
-  const analyses = collectAnalyses(turns);
-  const hintEvidence = resolveHintEvidence(turns);
+  const ordered = [...turns].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+  const analyses = collectAnalyses(ordered);
+  const studentTurns = ordered.filter((turn) => turn.actor === 'student');
 
-  const studentTurns = turns.filter((turn) => turn.actor === 'student');
-  const answerSeekingCount = analyses.filter(isAnswerSeeking).length;
-  const meaningfulAttemptCount = analyses.filter(
-    (analysis) => analysis.attemptQuality === 'meaningful',
-  ).length;
-  const firstMeaningfulAttemptIndex = analyses.findIndex(
-    (analysis) => analysis.attemptQuality === 'meaningful',
-  );
+  const attempt = firstAttemptEvidence(analyses, studentTurns.length);
+  const hints = resolveHintEvidence(ordered);
+  const reasoning = reasoningEvidence(ordered, attempts, studentTurns.length);
+  const verification = verificationEvidence(session, ordered, attempts);
+  const transfer = transferEvidence(ordered, attempts);
+  const difficulty = resolveDifficulty(session, ordered);
 
-  const reasoning = rubricState(attempts, 'explanation', (attempt) =>
-    attempt.evaluation?.reasoningRubric,
-  );
-  const verification = rubricState(attempts, 'verification', (attempt) =>
-    attempt.evaluation?.verificationRubric,
-  );
-  const transfer = resolveTransferEvidence(attempts);
-
-  const accommodationAttempts = attempts.filter(
-    (attempt) => attempt.evaluation?.accessibilityAccommodation === true,
-  ).length;
-
-  const systemErrorTurns = turns.filter((turn) => turn.systemError === true).length;
-
-  const finalAnswerShown = turns.some(
-    (turn) => turn.tutorMetadata?.finalAnswerIncluded === true,
-  );
+  const answerSeekingSignals = analyses.filter(isAnswerSeeking).length;
 
   return {
     sessionId: session.id,
     occurredAt: toDate(session.completedAt) ?? toDate(session.startedAt),
+    topic: session.topic ?? analyses[0]?.topic ?? null,
     subject: session.subject ?? null,
-    topic: session.topic ?? analyses.find((analysis) => analysis.topic)?.topic ?? null,
     mode: session.mode ?? null,
-    status: session.status ?? null,
+
+    endedWithSystemError:
+      session.endedWithSystemError === true || ordered.some((turn) => turn.systemError === true),
+
+    difficulty: difficulty.difficulty,
+    difficultySource: difficulty.source,
+
+    firstAttemptQuality: attempt.quality,
+    firstAttemptState: attempt.state,
+    answerSeekingSignals,
+    repeatedAnswerSeeking:
+      answerSeekingSignals >= 2 && (attempt.quality === null || attempt.quality === 'none'),
+
+    highestHintUsed: hints.highestHintUsed,
+    allowedHintLevel: hints.allowedHintLevel,
+    hintState: hints.state,
+    receivedFullSolution: ordered.some(
+      (turn) =>
+        turn.tutorMetadata?.finalAnswerIncluded === true ||
+        (turn.tutorMetadata?.hintLevel ?? 0) >= 7,
+    ),
+    accommodationHintLevels: hints.accommodationHintLevels,
+
     studentTurnCount: studentTurns.length,
-    answerSeekingCount,
-    meaningfulAttemptCount,
-    firstMeaningfulAttemptIndex:
-      firstMeaningfulAttemptIndex >= 0 ? firstMeaningfulAttemptIndex : null,
-    highestHintUsed: hintEvidence.highestHintUsed,
-    allowedHintLevel: hintEvidence.allowedHintLevel,
-    hintEvidenceState: hintEvidence.state,
-    reasoningRubric: reasoning.value as ReasoningRubric | null,
-    reasoningEvidenceState: reasoning.state,
-    verificationRubric: verification.value as VerificationRubric | null,
-    verificationEvidenceState: verification.state,
-    transfer,
-    finalAnswerShown,
-    difficulty: resolveDifficulty(session, turns).difficulty,
-    difficultySource: resolveDifficulty(session, turns).source,
-    endedWithSystemError: Boolean(session.endedWithSystemError || systemErrorTurns > 0),
-    accessibilityAccommodation: {
-      hintLevels: hintEvidence.accommodationHintLevels,
-      attemptCount: accommodationAttempts,
-    },
+    reasoningRubric: reasoning.rubric,
+    reasoningState: reasoning.state,
+
+    transfer: transfer.transfer,
+    transferState: transfer.state,
+
+    verificationRubric: verification.rubric,
+    verificationState: verification.state,
   };
+}
+
+export function groupTurnsBySession(turns: RawTurn[]): Map<string, RawTurn[]> {
+  const grouped = new Map<string, RawTurn[]>();
+  for (const turn of turns) {
+    if (!turn.sessionId) continue;
+    const bucket = grouped.get(turn.sessionId);
+    if (bucket) {
+      bucket.push(turn);
+    } else {
+      grouped.set(turn.sessionId, [turn]);
+    }
+  }
+  return grouped;
+}
+
+export function groupAttemptsBySession(attempts: RawAttempt[]): Map<string, RawAttempt[]> {
+  const grouped = new Map<string, RawAttempt[]>();
+  for (const attempt of attempts) {
+    if (!attempt.sessionId) continue;
+    const bucket = grouped.get(attempt.sessionId);
+    if (bucket) {
+      bucket.push(attempt);
+    } else {
+      grouped.set(attempt.sessionId, [attempt]);
+    }
+  }
+  return grouped;
 }
