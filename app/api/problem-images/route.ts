@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Section 41 lists "abuse of image uploads" as a threat alongside rate-limit
-    // bypass. This endpoint spends a multimodal model call and bucket storage per
+    // bypass. This endpoint spends multimodal model calls and bucket storage per
     // request, so it is limited on the same terms as the tutoring endpoint, keyed
     // on the verified uid.
     const limit = await checkRateLimit({
@@ -163,6 +163,9 @@ export async function POST(req: NextRequest) {
       extractionModel: result.modelName,
       extractionPromptVersion: EXTRACTION_PROMPT_VERSION,
       extractionLatencyMs: result.latencyMs,
+      // Section 36: the second Gemini pass is an AI interaction too, so its
+      // provenance and result are persisted rather than hidden behind a boolean.
+      extractionSemanticValidation: result.semanticValidation,
       createdAt: FieldValue.serverTimestamp(),
     });
 
@@ -181,6 +184,8 @@ export async function POST(req: NextRequest) {
       width: validation.dimensions.width,
       height: validation.dimensions.height,
       extractionAvailable: result.available,
+      semanticVerificationAvailable: result.semanticValidation?.available ?? false,
+      semanticVerificationApproved: result.semanticValidation?.approved ?? false,
     });
   } catch (error) {
     // Never echo the underlying error: it can carry bucket names and internal
