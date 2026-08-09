@@ -15,6 +15,15 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Safe runtime defaults. Cloud Run or `docker run -e ...` can override any of
+# these without rebuilding the image. Secrets such as GEMINI_API_KEY are never
+# baked into the image and must be injected at runtime.
+ENV GEMINI_TUTOR_MODEL=gemini-3.6-flash
+ENV GEMINI_CLASSIFIER_MODEL=gemini-3.6-flash
+ENV GEMINI_EVALUATOR_MODEL=gemini-3.6-flash
+ENV GEMINI_TRANSFER_MODEL=gemini-3.6-flash
+ENV GEMINI_EXTRACTION_MODEL=gemini-3.6-flash
+
 RUN addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nextjs
 
