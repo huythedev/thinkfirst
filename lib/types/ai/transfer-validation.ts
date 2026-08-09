@@ -62,8 +62,9 @@ export function parseTransferValidation(
 
 /**
  * Fail closed. A validator saying only `valid: true` is insufficient if one of
- * its own component judgements disagrees, and low-confidence approvals are not
- * strong enough to make a hidden reference answer load-bearing for scoring.
+ * its own component judgements disagrees, if it proposes a corrected answer, if
+ * it still reports issues, or if its confidence is too low to make the hidden
+ * reference answer load-bearing for scoring.
  */
 export function isTransferValidationApproved(result: TransferValidation): boolean {
   return (
@@ -73,6 +74,8 @@ export function isTransferValidationApproved(result: TransferValidation): boolea
     result.problemUnambiguous &&
     result.unitsCorrect &&
     result.sameConcept &&
+    result.correctedAnswer === null &&
+    result.issues.length === 0 &&
     result.confidence >= 0.7
   );
 }
