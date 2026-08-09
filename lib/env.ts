@@ -3,9 +3,10 @@ import { z } from 'zod';
 /**
  * Environment validation.
  *
- * Every variable the application reads is declared here. Validation runs once
- * at startup and fails fast, naming the offending variable, so a misconfigured
- * deployment stops at boot instead of failing later inside a request handler.
+ * Every variable the application reads or exposes as a documented deployment
+ * contract is declared here. Validation runs once at startup and fails fast,
+ * naming the offending variable, so a misconfigured deployment stops at boot
+ * instead of failing later inside a request handler.
  */
 
 const optionalNonEmpty = z
@@ -26,6 +27,9 @@ const baseSchema = z.object({
   GEMINI_API_KEY: optionalNonEmpty,
   GEMINI_TUTOR_MODEL: optionalNonEmpty,
   GEMINI_CLASSIFIER_MODEL: optionalNonEmpty,
+  GEMINI_VALIDATOR_MODEL: optionalNonEmpty,
+  GEMINI_EVALUATOR_MODEL: optionalNonEmpty,
+  GEMINI_TRANSFER_MODEL: optionalNonEmpty,
   GEMINI_EXTRACTION_MODEL: optionalNonEmpty,
   NEXT_PUBLIC_USE_FIREBASE_EMULATORS: booleanFlag,
   NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST: optionalNonEmpty,
