@@ -6,10 +6,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
  *
  * `tests/policy/policy-inputs.test.ts` covers the precedence logic as a pure
  * function. What it cannot cover is the Firestore wiring: the collection names,
- * the ownership check, the assignment-belongs-to-classroom check, and the
+ * membership proof, assignment-belongs-to-classroom check, ownership check, and
  * transcript ordering/provenance. Those are exactly the parts that would silently
- * resolve to a default if a field name were wrong, and a silent default here
- * means a policy decision made on the wrong data.
+ * resolve to a default if a field name were wrong, and a silent default here can
+ * mean a policy decision made on the wrong data.
  */
 
 process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS = 'true';
@@ -32,7 +32,11 @@ beforeAll(async () => {
   policyInputs = await import('@/lib/session/policy-inputs');
 });
 
-async function seedClassroomSession(suffix: string, overrides: Record<string, unknown> = {}) {
+async function seedClassroomSession(
+  suffix: string,
+  overrides: Record<string, unknown> = {},
+  options: { membershipStatus?: 'active' | 'inactive'; seedMembership?: boolean } = {},
+) {
   const classroomId = `int-class-${suffix}`;
   const sessionId = `int-session-${suffix}`;
 
@@ -44,6 +48,18 @@ async function seedClassroomSession(suffix: string, overrides: Record<string, un
     subject: 'mathematics',
     defaultStrictness: 'assessment_safe',
   });
+
+  if (options.seedMembership !== false) {
+    await adminDb
+      .collection('classroomMemberships')
+      .doc(`${classroomId}__${STUDENT}`)
+      .set({
+        classroomId,
+        userId: STUDENT,
+        role: 'student',
+        status: options.membershipStatus ?? 'active',
+      });
+  }
 
   await adminDb.collection('learningSessions').doc(sessionId).set({
     studentId: STUDENT,
@@ -63,7 +79,7 @@ async function seedClassroomSession(suffix: string, overrides: Record<string, un
 }
 
 describe('resolvePolicyInputs against the emulator', () => {
-  it('reads strictness from the classroom, not from the session the client wrote', async () => {
+  it('reads strictness from a classroom only after active membership is verified', async () => {
     const { sessionId } = await seedClassroomSession('basic');
 
     const result = await policyInputs.resolvePolicyInputs(sessionId, STUDENT);
@@ -84,7 +100,7 @@ describe('resolvePolicyInputs against the emulator', () => {
     expect(result.inputs.currentHintLevel).toBe(3);
   });
 
-  it('prefers an assignment over the classroom', async () => {
+  it('prefers an assignment over its verified classroom', async () => {
     const { classroomId, sessionId } = await seedClassroomSession('assigned');
     const assignmentId = 'int-assignment-1';
 
@@ -112,7 +128,7 @@ describe('resolvePolicyInputs against the emulator', () => {
     expect(result.inputs.mode).toBe('assignment');
   });
 
-  it('ignores an assignment that belongs to a different classroom', async () => {
+  it('refuses an assignment reference that belongs to a different classroom', async () => {
     const { sessionId } = await seedClassroomSession('foreign-assignment');
     const assignmentId = 'int-assignment-foreign';
 
@@ -126,10 +142,53 @@ describe('resolvePolicyInputs against the emulator', () => {
     await adminDb.collection('learningSessions').doc(sessionId).update({ assignmentId });
 
     const result = await policyInputs.resolvePolicyInputs(sessionId, STUDENT);
-    if (result.status !== 'ok') throw new Error('expected ok');
+    expect(result.status).toBe('forbidden');
+  });
 
-    expect(result.inputs.strictness).toBe('assessment_safe');
-    expect(result.inputs.allowFullSolutions).toBeUndefined();
+  it('refuses a client-created session that points at a classroom without membership', async () => {
+    const { sessionId } = await seedClassroomSession(
+      'foreign-classroom',
+      { strictness: 'supportive' },
+      { seedMembership: false },
+    );
+
+    const result = await policyInputs.resolvePolicyInputs(sessionId, STUDENT);
+    expect(result.status).toBe('forbidden');
+  });
+
+  it('refuses a classroom reference when membership is no longer active', async () => {
+    const { sessionId } = await seedClassroomSession(
+      'inactive-membership',
+      {},
+      { membershipStatus: 'inactive' },
+    );
+
+    const result = await policyInputs.resolvePolicyInputs(sessionId, STUDENT);
+    expect(result.status).toBe('forbidden');
+  });
+
+  it('refuses an assignment reference that omits its classroom context', async () => {
+    const assignmentId = 'int-assignment-without-classroom-context';
+    await adminDb.collection('assignments').doc(assignmentId).set({
+      id: assignmentId,
+      classroomId: 'some-classroom',
+      teacherId: 'integration-teacher',
+      strictness: 'supportive',
+      allowFullSolutions: true,
+    });
+    const sessionId = 'int-session-assignment-without-classroom-context';
+    await adminDb.collection('learningSessions').doc(sessionId).set({
+      studentId: STUDENT,
+      assignmentId,
+      subject: 'mathematics',
+      mode: 'practice',
+      status: 'active',
+      originalProblem: 'Solve 2x + 3 = 11',
+      currentHintLevel: 0,
+    });
+
+    const result = await policyInputs.resolvePolicyInputs(sessionId, STUDENT);
+    expect(result.status).toBe('forbidden');
   });
 
   it('falls back to the student profile when the session has no classroom', async () => {
