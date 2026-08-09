@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const verifyRequest = vi.fn();
 const resolvePolicyInputs = vi.fn();
 const loadTranscript = vi.fn();
+const reserveTurnSequences = vi.fn();
 const generateContent = vi.fn();
 const checkRateLimit = vi.fn();
 const recordSafetyEvent = vi.fn();
@@ -74,6 +75,10 @@ vi.mock('firebase-admin/firestore', () => ({
 vi.mock('@/lib/session/policy-inputs', () => ({
   resolvePolicyInputs: (...args: unknown[]) => resolvePolicyInputs(...args),
   loadTranscript: (...args: unknown[]) => loadTranscript(...args),
+}));
+
+vi.mock('@/lib/session/turn-sequence', () => ({
+  reserveTurnSequences: (...args: unknown[]) => reserveTurnSequences(...args),
 }));
 
 vi.mock('@/lib/security/rate-limit', () => ({
@@ -222,10 +227,17 @@ beforeEach(() => {
         allowedHintLevel: 1,
         requiresExplanation: false,
         requiresVerification: false,
+        learningObjective: 'delivered-objective',
       },
       tutorMetadata: { responseType: 'hint', studentActionRequired: 'Try the next step.' },
     },
   ]);
+  reserveTurnSequences.mockImplementation(
+    (_sessionId: string, minimumNextSequence: number, count: number) =>
+      Promise.resolve(
+        Array.from({ length: count }, (_, index) => minimumNextSequence + index),
+      ),
+  );
   runSemanticValidation.mockResolvedValue(semanticApproval);
 });
 
@@ -241,17 +253,22 @@ describe('the endpoint consumes and verifies the safety classification', () => {
     expect(runSemanticValidation.mock.calls[0][0].validationKind).toBe('intent_classification');
   });
 
-  it('persists the current student turn under server credentials', async () => {
+  it('reserves ordered server sequence numbers and persists the student turn', async () => {
     classifierReturns('self_harm');
 
     await POST(request({ message: 'I want to hurt myself', sessionId: 's1' }) as never);
 
+    expect(reserveTurnSequences).toHaveBeenCalledWith('s1', 3, 2);
     const studentWrite = turnSet.mock.calls.find(
       ([name, data]) =>
         name === 'sessionTurns' && (data as Record<string, unknown>).actor === 'student',
     );
     expect(studentWrite).toBeDefined();
-    expect((studentWrite![1] as Record<string, unknown>).studentId).toBe('student-1');
+    expect(studentWrite![1]).toMatchObject({
+      studentId: 'student-1',
+      sequence: 3,
+      serverAuthored: true,
+    });
   });
 
   it('returns the deterministic safety message with support guidance', async () => {
@@ -398,6 +415,11 @@ describe('the endpoint consumes and verifies the safety classification', () => {
       'student-1',
       's1',
     );
+
+    const evaluatorCall = recordLearningEvidenceProbe.mock.calls.find(
+      ([kind]) => kind === 'evaluateAttempt',
+    );
+    expect(evaluatorCall?.[1]).toMatchObject({ learningObjective: 'delivered-objective' });
   });
 });
 
