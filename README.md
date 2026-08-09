@@ -54,9 +54,9 @@ flowchart TB
 
     UI --> AUTHDB
     UI --> CHAT
-    CHAT --> AUTH --> RESOLVE --> ENGINE
-    ENGINE --> CLS
-    CLS --> ENGINE
+    CHAT --> AUTH --> RESOLVE
+    RESOLVE --> CLS --> VERIFY
+    VERIFY -->|approved / conservative fallback| ENGINE
     ENGINE -->|ordinary turn| TUTOR
     TUTOR --> ENFORCE --> VERIFY
     VERIFY -->|approved| FS
@@ -83,12 +83,13 @@ client input
 → trusted state resolution
 → Gemini analysis or generation
 → strict schema validation
-→ deterministic policy enforcement
-→ independent Gemini semantic verification where correctness matters
+→ independent Gemini semantic verification where meaning matters
+→ deterministic policy / disclosure enforcement
+→ post-enforcement semantic verification where content correctness matters
 → server-authored persistence
 ```
 
-Gemini verification may **reject** content, but it never grants permissions that deterministic policy did not already grant.
+Gemini verification may **reject** content or make a safety classification more conservative, but it never grants permissions that deterministic policy did not already grant.
 
 ## Gemini-first verification strategy
 
@@ -96,13 +97,14 @@ For the current quality-first phase, ThinkFirst spends extra model calls on sema
 
 | Output | Verification behavior |
 |---|---|
+| Intent classification | A second Gemini pass checks intent/attempt/answer-seeking/safety before deterministic policy; disagreement falls back conservatively, while a verifier-detected safety category may only make handling more restrictive |
 | Tutor response | Post-enforcement response is independently checked before persistence/display |
 | Attempt/evaluator evidence | Independent verifier must approve before rubric evidence can affect scoring |
 | Generated transfer problem | Separate Gemini validator checks answer, steps, ambiguity, units, and concept alignment |
 | Student transfer answer | Local math result is only a signal; Gemini independently verifies the answer before the result becomes scoring evidence |
 | Image extraction | A second multimodal pass checks the candidate against the same image; rejection forces student confirmation |
 
-Local Zod validation, safe math parsing, authorization, Firestore rules, safety composition, and policy enforcement remain deterministic. The long-term optimization is to replace verified subsets with well-tested local validators once measured accuracy is high enough.
+Local Zod validation, safe math parsing, authorization, Firestore rules, safety response composition, and policy enforcement remain deterministic. The long-term optimization is to replace verified subsets with well-tested local validators once measured accuracy is high enough.
 
 ## Technology stack
 
@@ -170,7 +172,7 @@ docker build -t thinkfirst .
 docker run --rm -p 8080:8080 --env-file .env.local thinkfirst
 ```
 
-Do not put `GEMINI_API_KEY` in the Dockerfile or a committed environment file.
+Do not put `GEMINI_API_KEY` in the Dockerfile or a committed environment file. Docker does not prompt interactively for the key; live mode fails immediately at the first model-client resolution if the runtime key is missing.
 
 ## Tests and evaluation
 
@@ -206,7 +208,7 @@ Detailed provisioning, environment variables, rollback, and secret handling are 
 - `assignmentReferences` and `transferProblems` contain hidden answers and deny client access.
 - `studentAttempts` and Independence Score snapshots are server-authored derived evidence.
 - Problem images are validated before storage/model processing; semantic extraction verification can force confirmation.
-- Safety disclosures use deterministic response composition after classification and are excluded from academic scoring.
+- Safety classification gets an independent semantic check, but safety response content itself remains deterministic and safety turns are excluded from academic scoring.
 - Teacher surfaces expose aggregate patterns by default rather than raw student transcripts.
 
 See [`docs/PRIVACY-DESIGN.md`](docs/PRIVACY-DESIGN.md), [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md), [`docs/MINOR-SAFETY.md`](docs/MINOR-SAFETY.md), and [`docs/DATA-RETENTION.md`](docs/DATA-RETENTION.md).
