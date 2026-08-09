@@ -21,11 +21,11 @@ Independently solve or check the generated problem, then judge all of the follow
 
 A deterministic checker result may be supplied as supporting evidence. It is not authoritative: independently verify the problem-to-answer relationship rather than trusting that result or the generator's worked steps.
 
-If the supplied answer is wrong but there is a clear corrected answer, put only that answer in correctedAnswer. Otherwise use null.
+If the supplied answer is wrong but there is a clear corrected answer, put only that answer in correctedAnswer. Otherwise use null. correctedAnswer must be null whenever valid is true.
 
 Set confidence from 0 to 1. Lower confidence when the problem depends on notation, assumptions, diagrams or facts that cannot be established from the supplied text.
 
-List concise issues. An empty issues array is appropriate only when valid is true.
+List concise issues. issues must be empty whenever valid is true. If any issue remains, valid must be false.
 
 Return only JSON matching the required schema.`;
 
