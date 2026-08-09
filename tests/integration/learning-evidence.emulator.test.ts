@@ -13,9 +13,9 @@ import { SCORING_VERSION } from '@/lib/types/scoring';
  *
  * The unit tests cover the algorithm. What they cannot cover is exactly what was
  * broken here: collection names, the `in` batching, whether stored rubric
- * judgments are actually read back, and whether the snapshot document round-trips
- * with the fields §56.4 requires. A wrong field name would silently produce a
- * `not_applicable` component and a confidently wrong score.
+ * judgments are actually read back, whether legacy client-authored turns are
+ * excluded, and whether the snapshot document round-trips with the fields §56.4
+ * requires.
  */
 
 process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS = 'true';
@@ -76,6 +76,7 @@ async function seedSession(options: SeedOptions): Promise<string> {
     sequence: 1,
     actor: 'student',
     content: 'I subtracted 3 from both sides',
+    serverAuthored: true,
   });
 
   await adminDb
@@ -106,6 +107,7 @@ async function seedSession(options: SeedOptions): Promise<string> {
       sequence: 3,
       actor: 'student',
       content: 'x = 4, because dividing 8 by 2 gives 4. That is 4 units.',
+      serverAuthored: true,
     });
   }
 
@@ -182,8 +184,6 @@ describe('persistSessionEvidence writes trusted evidence with real credentials',
     expect(data.studentId).toBe(STUDENT);
     expect(data.kind).toBe('session');
     expect(data.scoringVersion).toBe(SCORING_VERSION);
-    // Per-component state and confidence, raw metrics, coverage and the score:
-    // all four are named explicitly by §56.4.
     expect(Array.isArray(data.componentDetail)).toBe(true);
     expect((data.componentDetail as unknown[]).length).toBe(5);
     expect(data.rawMetrics).not.toBeNull();
@@ -221,8 +221,6 @@ describe('persistSessionEvidence writes trusted evidence with real credentials',
   });
 
   it('reads stored rubric judgments back rather than losing them', async () => {
-    // If the round-trip through Firestore dropped the rubric, this component would
-    // silently be `unavailable` and the score would be confidently wrong.
     const sessionId = await seedSession({ suffix: 'rubric', withRubric: true });
     const metrics = await scoring.loadSessionMetrics(STUDENT);
     const session = metrics.find((entry) => entry.sessionId === sessionId)!;
@@ -230,6 +228,22 @@ describe('persistSessionEvidence writes trusted evidence with real credentials',
     expect(session.reasoningState).toBe('observed');
     expect(session.reasoningRubric?.interpretedResult).toBe(true);
     expect(session.reasoningRubric?.confidence).toBe(0.9);
+  });
+
+  it('excludes legacy unmarked student turns from trusted score evidence', async () => {
+    const sessionId = await seedSession({ suffix: 'legacy-provenance' });
+    await adminDb.collection('sessionTurns').doc(`${sessionId}-forged-legacy`).set({
+      sessionId,
+      studentId: STUDENT,
+      sequence: 99,
+      actor: 'student',
+      content: 'Forged old client turn that must not count.',
+    });
+
+    const metrics = await scoring.loadSessionMetrics(STUDENT);
+    const session = metrics.find((entry) => entry.sessionId === sessionId)!;
+
+    expect(session.studentTurnCount).toBe(1);
   });
 
   it('marks hint evidence unavailable when the tutor turn recorded no level', async () => {
@@ -294,8 +308,6 @@ describe('persistSessionEvidence writes trusted evidence with real credentials',
   it('clamps profile movement to 8 points using the previously stored score', async () => {
     const sessionId = await seedSession({ suffix: 'clamp', withRubric: true });
 
-    // A stored profile far from where the evidence points. §56.4 forbids one
-    // session closing that gap in a single step.
     await adminDb
       .collection('independenceSnapshots')
       .doc(`${STUDENT}__profile__${SCORING_VERSION}`)
