@@ -14,6 +14,7 @@ export const AI_VERSIONS = {
   classifierPrompt: 'classifier-v1',
   evaluatorPrompt: 'evaluator-v1',
   transferPrompt: 'transfer-v1',
+  validatorPrompt: 'validator-v1',
   extractionPrompt: 'extraction-v1',
   policy: 'policy-v2',
   scoring: 'scoring-v2',
