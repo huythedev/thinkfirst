@@ -20,6 +20,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # baked into the image and must be injected at runtime.
 ENV GEMINI_TUTOR_MODEL=gemini-3.6-flash
 ENV GEMINI_CLASSIFIER_MODEL=gemini-3.6-flash
+ENV GEMINI_VALIDATOR_MODEL=gemini-3.6-flash
 ENV GEMINI_EVALUATOR_MODEL=gemini-3.6-flash
 ENV GEMINI_TRANSFER_MODEL=gemini-3.6-flash
 ENV GEMINI_EXTRACTION_MODEL=gemini-3.6-flash
