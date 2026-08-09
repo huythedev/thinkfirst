@@ -86,7 +86,7 @@ export interface VerificationRubric {
 }
 
 /** How transfer correctness was established. §56.2 orders these by precedence. */
-export type CorrectnessSource = 'deterministic' | 'evaluator' | 'unavailable';
+export type CorrectnessSource = 'deterministic' | 'validator' | 'evaluator' | 'unavailable';
 
 export interface TransferEvidence {
   issued: boolean;
@@ -94,8 +94,9 @@ export interface TransferEvidence {
   declined: boolean;
   outcome: TransferOutcome | null;
   correctnessSource: CorrectnessSource;
-  /** 1.0 only for a deterministic check; evaluator judgment caps at 0.7. */
+  /** 1.0 only for deterministic + validator agreement; model-only judgment caps at 0.7. */
   confidence: number;
+  /** Legacy field retained for snapshot compatibility; production persistence keeps it null. */
   referenceAnswer: string | null;
   studentAnswer: string | null;
 }
