@@ -44,7 +44,7 @@ jobs:
             --project "${{ vars.FIREBASE_PROJECT_ID }}" \
             --region "${{ vars.GCP_REGION }}" \
             --allow-unauthenticated \
-            --set-env-vars "NODE_ENV=production,GOOGLE_CLOUD_PROJECT=${{ vars.FIREBASE_PROJECT_ID }},GOOGLE_CLOUD_LOCATION=${{ vars.GCP_REGION }},GEMINI_TUTOR_MODEL=${{ vars.GEMINI_TUTOR_MODEL || 'gemini-3.6-flash' }},GEMINI_CLASSIFIER_MODEL=${{ vars.GEMINI_CLASSIFIER_MODEL || 'gemini-3.6-flash' }},GEMINI_EVALUATOR_MODEL=${{ vars.GEMINI_EVALUATOR_MODEL || 'gemini-3.6-flash' }},GEMINI_TRANSFER_MODEL=${{ vars.GEMINI_TRANSFER_MODEL || 'gemini-3.6-flash' }},GEMINI_EXTRACTION_MODEL=${{ vars.GEMINI_EXTRACTION_MODEL || 'gemini-3.6-flash' }}" \
+            --set-env-vars "NODE_ENV=production,GOOGLE_CLOUD_PROJECT=${{ vars.FIREBASE_PROJECT_ID }},GOOGLE_CLOUD_LOCATION=${{ vars.GCP_REGION }},GEMINI_TUTOR_MODEL=${{ vars.GEMINI_TUTOR_MODEL || 'gemini-3.6-flash' }},GEMINI_CLASSIFIER_MODEL=${{ vars.GEMINI_CLASSIFIER_MODEL || 'gemini-3.6-flash' }},GEMINI_VALIDATOR_MODEL=${{ vars.GEMINI_VALIDATOR_MODEL || 'gemini-3.6-flash' }},GEMINI_EVALUATOR_MODEL=${{ vars.GEMINI_EVALUATOR_MODEL || 'gemini-3.6-flash' }},GEMINI_TRANSFER_MODEL=${{ vars.GEMINI_TRANSFER_MODEL || 'gemini-3.6-flash' }},GEMINI_EXTRACTION_MODEL=${{ vars.GEMINI_EXTRACTION_MODEL || 'gemini-3.6-flash' }}" \
             --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest"
 
   deploy-staging:
@@ -78,7 +78,7 @@ jobs:
             --project "${{ vars.FIREBASE_PROJECT_ID }}" \
             --region "${{ vars.GCP_REGION }}" \
             --allow-unauthenticated \
-            --set-env-vars "NODE_ENV=production,GOOGLE_CLOUD_PROJECT=${{ vars.FIREBASE_PROJECT_ID }},GOOGLE_CLOUD_LOCATION=${{ vars.GCP_REGION }},GEMINI_TUTOR_MODEL=${{ vars.GEMINI_TUTOR_MODEL || 'gemini-3.6-flash' }},GEMINI_CLASSIFIER_MODEL=${{ vars.GEMINI_CLASSIFIER_MODEL || 'gemini-3.6-flash' }},GEMINI_EVALUATOR_MODEL=${{ vars.GEMINI_EVALUATOR_MODEL || 'gemini-3.6-flash' }},GEMINI_TRANSFER_MODEL=${{ vars.GEMINI_TRANSFER_MODEL || 'gemini-3.6-flash' }},GEMINI_EXTRACTION_MODEL=${{ vars.GEMINI_EXTRACTION_MODEL || 'gemini-3.6-flash' }}" \
+            --set-env-vars "NODE_ENV=production,GOOGLE_CLOUD_PROJECT=${{ vars.FIREBASE_PROJECT_ID }},GOOGLE_CLOUD_LOCATION=${{ vars.GCP_REGION }},GEMINI_TUTOR_MODEL=${{ vars.GEMINI_TUTOR_MODEL || 'gemini-3.6-flash' }},GEMINI_CLASSIFIER_MODEL=${{ vars.GEMINI_CLASSIFIER_MODEL || 'gemini-3.6-flash' }},GEMINI_VALIDATOR_MODEL=${{ vars.GEMINI_VALIDATOR_MODEL || 'gemini-3.6-flash' }},GEMINI_EVALUATOR_MODEL=${{ vars.GEMINI_EVALUATOR_MODEL || 'gemini-3.6-flash' }},GEMINI_TRANSFER_MODEL=${{ vars.GEMINI_TRANSFER_MODEL || 'gemini-3.6-flash' }},GEMINI_EXTRACTION_MODEL=${{ vars.GEMINI_EXTRACTION_MODEL || 'gemini-3.6-flash' }}" \
             --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest"
 
   deploy-production:
@@ -102,5 +102,5 @@ jobs:
             --project "${{ vars.FIREBASE_PROJECT_ID }}" \
             --region "${{ vars.GCP_REGION }}" \
             --allow-unauthenticated \
-            --set-env-vars "NODE_ENV=production,GOOGLE_CLOUD_PROJECT=${{ vars.FIREBASE_PROJECT_ID }},GOOGLE_CLOUD_LOCATION=${{ vars.GCP_REGION }},GEMINI_TUTOR_MODEL=${{ vars.GEMINI_TUTOR_MODEL || 'gemini-3.6-flash' }},GEMINI_CLASSIFIER_MODEL=${{ vars.GEMINI_CLASSIFIER_MODEL || 'gemini-3.6-flash' }},GEMINI_EVALUATOR_MODEL=${{ vars.GEMINI_EVALUATOR_MODEL || 'gemini-3.6-flash' }},GEMINI_TRANSFER_MODEL=${{ vars.GEMINI_TRANSFER_MODEL || 'gemini-3.6-flash' }},GEMINI_EXTRACTION_MODEL=${{ vars.GEMINI_EXTRACTION_MODEL || 'gemini-3.6-flash' }}" \
+            --set-env-vars "NODE_ENV=production,GOOGLE_CLOUD_PROJECT=${{ vars.FIREBASE_PROJECT_ID }},GOOGLE_CLOUD_LOCATION=${{ vars.GCP_REGION }},GEMINI_TUTOR_MODEL=${{ vars.GEMINI_TUTOR_MODEL || 'gemini-3.6-flash' }},GEMINI_CLASSIFIER_MODEL=${{ vars.GEMINI_CLASSIFIER_MODEL || 'gemini-3.6-flash' }},GEMINI_VALIDATOR_MODEL=${{ vars.GEMINI_VALIDATOR_MODEL || 'gemini-3.6-flash' }},GEMINI_EVALUATOR_MODEL=${{ vars.GEMINI_EVALUATOR_MODEL || 'gemini-3.6-flash' }},GEMINI_TRANSFER_MODEL=${{ vars.GEMINI_TRANSFER_MODEL || 'gemini-3.6-flash' }},GEMINI_EXTRACTION_MODEL=${{ vars.GEMINI_EXTRACTION_MODEL || 'gemini-3.6-flash' }}" \
             --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest"
