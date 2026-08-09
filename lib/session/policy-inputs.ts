@@ -23,9 +23,15 @@ import type { PolicyMode, PolicyStrictness } from '@/services/ai-gateway/src/pol
  *
  *   assignments/{id} -> classrooms/{id} -> studentProfiles/{uid} -> default
  *
- * The session document remains authoritative for the two things it legitimately
- * owns and the client cannot write: `currentHintLevel`, which only this endpoint
- * advances, and `originalProblem`, which is the student's own question.
+ * A session may carry classroom/assignment identifiers, but those identifiers are
+ * client-authored references, not proof of membership. Before either referenced
+ * document may influence policy, the resolver verifies the deterministic active
+ * membership document for this student and requires the assignment to belong to
+ * that same classroom.
+ *
+ * The session document remains authoritative for the things it legitimately owns:
+ * `currentHintLevel`, which only the server advances, and `originalProblem`, which
+ * is the student's own question.
  *
  * Image extraction confidence joins that list from the other side. The session
  * may name the image it came from, because pointing at your own upload is
@@ -131,9 +137,6 @@ export function resolvePolicyFromDocuments(
     strictnessSource = 'studentProfile';
   }
 
-  // Mode is the student's own pedagogical choice, so the session document is a
-  // legitimate source for it. An assignment may narrow the permitted set, and a
-  // mode outside that set falls back to the assignment's first allowed mode.
   let mode: PolicyMode = isMode(session.mode) ? session.mode : DEFAULT_MODE;
   let modeSource: PolicySource = isMode(session.mode) ? 'session' : 'default';
 
@@ -163,8 +166,7 @@ export function resolvePolicyFromDocuments(
 
   const assignmentPolicySource: PolicySource = assignment ? 'assignment' : 'default';
   const language = studentProfile?.preferredLanguage === 'vi' ? 'vi' : 'en';
-  const originalProblem =
-    typeof session.originalProblem === 'string' ? session.originalProblem : '';
+  const originalProblem = typeof session.originalProblem === 'string' ? session.originalProblem : '';
   const subject = typeof session.subject === 'string' ? session.subject : 'other';
   const currentHintLevel = clampHintLevel(session.currentHintLevel);
 
@@ -178,8 +180,7 @@ export function resolvePolicyFromDocuments(
     imageOwned && typeof problemImage?.extractionConfidence === 'number'
       ? problemImage.extractionConfidence
       : undefined;
-  const extractionConfirmed =
-    imageOwned && problemImage?.confirmationStatus === 'confirmed';
+  const extractionConfirmed = imageOwned && problemImage?.confirmationStatus === 'confirmed';
 
   return {
     sessionId,
@@ -229,24 +230,49 @@ export async function resolvePolicyInputs(
   const classroomId = typeof session.classroomId === 'string' ? session.classroomId : null;
   const imageId = typeof session.imageId === 'string' ? session.imageId : null;
 
-  const [assignmentSnapshot, classroomSnapshot, profileSnapshot, imageSnapshot] = await Promise.all([
-    assignmentId ? adminDb.collection('assignments').doc(assignmentId).get() : Promise.resolve(null),
-    classroomId ? adminDb.collection('classrooms').doc(classroomId).get() : Promise.resolve(null),
-    adminDb.collection('studentProfiles').doc(uid).get(),
-    imageId ? adminDb.collection('problemImages').doc(imageId).get() : Promise.resolve(null),
-  ]);
+  // An assignment policy is meaningful only inside the classroom that owns it.
+  // A client-created session naming an assignment without a classroom is not a
+  // standalone assignment; it is an untrusted cross-document reference.
+  if (assignmentId && !classroomId) return { status: 'forbidden' };
+
+  const membershipId = classroomId ? `${classroomId}__${uid}` : null;
+  const [assignmentSnapshot, classroomSnapshot, membershipSnapshot, profileSnapshot, imageSnapshot] =
+    await Promise.all([
+      assignmentId ? adminDb.collection('assignments').doc(assignmentId).get() : Promise.resolve(null),
+      classroomId ? adminDb.collection('classrooms').doc(classroomId).get() : Promise.resolve(null),
+      membershipId
+        ? adminDb.collection('classroomMemberships').doc(membershipId).get()
+        : Promise.resolve(null),
+      adminDb.collection('studentProfiles').doc(uid).get(),
+      imageId ? adminDb.collection('problemImages').doc(imageId).get() : Promise.resolve(null),
+    ]);
 
   const assignment =
     assignmentSnapshot?.exists ? ((assignmentSnapshot.data() ?? {}) as Record<string, unknown>) : null;
   const classroom =
     classroomSnapshot?.exists ? ((classroomSnapshot.data() ?? {}) as Record<string, unknown>) : null;
+  const membership =
+    membershipSnapshot?.exists ? ((membershipSnapshot.data() ?? {}) as Record<string, unknown>) : null;
   const studentProfile =
     profileSnapshot.exists ? ((profileSnapshot.data() ?? {}) as Record<string, unknown>) : null;
   const problemImage =
     imageSnapshot?.exists ? ((imageSnapshot.data() ?? {}) as Record<string, unknown>) : null;
 
+  if (classroomId) {
+    const activeMember =
+      classroom !== null &&
+      membership !== null &&
+      membership.classroomId === classroomId &&
+      membership.userId === uid &&
+      membership.status === 'active';
+    if (!activeMember) return { status: 'forbidden' };
+  }
+
   const assignmentBelongs =
-    assignment !== null && (classroomId === null || assignment.classroomId === classroomId);
+    assignment !== null &&
+    classroomId !== null &&
+    assignment.classroomId === classroomId;
+  if (assignmentId && !assignmentBelongs) return { status: 'forbidden' };
 
   return {
     status: 'ok',
