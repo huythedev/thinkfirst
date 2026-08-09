@@ -206,10 +206,6 @@ function validationMetadata(input: {
   };
 }
 
-/**
- * Evaluate one student attempt, then independently validate the evaluator's
- * claims before they can become scoring evidence.
- */
 export async function evaluateAttempt(context: EvaluationContext): Promise<AttemptEvaluationResult> {
   const configuredModel = configuredGeminiModel('evaluator');
   const recordedModelName = modelNameFor(configuredModel);
@@ -296,12 +292,6 @@ export interface GeneratedTransferProblem {
   validation: SemanticValidationMetadata;
 }
 
-/**
- * Generate a transfer problem and validate it independently before it can be
- * issued. The deterministic final-step check is retained as a useful signal, but
- * self-consistency is not approval: a different Gemini validation pass must
- * independently establish problem/answer/steps/units/concept consistency.
- */
 export async function generateTransferProblem(context: {
   problem: string;
   topic: string | null;
@@ -429,7 +419,6 @@ function correctTransferOutcome(hintDelta: number): TransferOutcome {
   return 'one_conceptual_hint';
 }
 
-/** Pure deterministic/evaluator fallback retained for scoring tests and local signal use. */
 export function resolveTransferOutcome(input: {
   studentAnswer: string | null;
   referenceAnswer: string | null;
@@ -484,15 +473,6 @@ export interface ValidatedTransferOutcome extends TransferOutcomeResult {
   semanticValidation: SemanticValidationMetadata;
 }
 
-/**
- * Load-bearing transfer correctness is Gemini-first for now. The local checker
- * remains a signal, but a deterministic verdict reaches confidence 1.0 only when
- * an independent Gemini verifier agrees exactly. A disagreement or an unable
- * verifier is unavailable rather than a confident student penalty.
- *
- * When the local checker cannot decide, the independent Gemini validator is the
- * model-based path required by §56.2 and remains capped at confidence 0.7.
- */
 export async function validateTransferOutcome(input: {
   problemMarkdown: string;
   studentAnswer: string | null;
@@ -612,12 +592,15 @@ export async function validateTransferOutcome(input: {
 }
 
 interface TransferAttemptPersistence {
-  problemId: string;
+  /** Preferred explicit id; omitted by the pre-cutover caller and resolved server-side. */
+  problemId?: string;
   outcome: TransferOutcome | null;
   correctnessSource: CorrectnessSource;
   confidence: number;
   studentAnswer: string | null;
   semanticValidation?: SemanticValidationMetadata | null;
+  /** Legacy caller field accepted for source compatibility but deliberately never persisted. */
+  referenceAnswer?: string | null;
 }
 
 function attemptDocument(input: {
@@ -658,8 +641,6 @@ function attemptDocument(input: {
             transferOutcome: input.transfer.outcome,
             correctnessSource: input.transfer.correctnessSource,
             correctnessConfidence: input.transfer.confidence,
-            // Never copy the hidden reference answer into this client-readable
-            // collection. It stays exclusively in `transferProblems`.
             studentAnswer: input.transfer.studentAnswer,
             transferSemanticValidation: input.transfer.semanticValidation ?? null,
           }
@@ -672,13 +653,32 @@ function attemptDocument(input: {
   };
 }
 
+async function resolveIssuedTransferProblemId(
+  sessionId: string,
+  explicitProblemId?: string,
+): Promise<string> {
+  if (explicitProblemId) return explicitProblemId;
+
+  const snapshot = await adminDb
+    .collection('transferProblems')
+    .where('sessionId', '==', sessionId)
+    .where('status', '==', 'issued')
+    .get();
+
+  if (snapshot.empty || snapshot.docs.length !== 1) {
+    throw new Error('Expected exactly one pending transfer problem for transfer evaluation.');
+  }
+  return snapshot.docs[0].id;
+}
+
 /**
  * Persist one evaluation under Admin credentials.
  *
  * Transfer evaluations use a deterministic id and atomically mark the hidden
  * transfer problem evaluated in the same batch. A retry can overwrite the same
  * evidence document but cannot create duplicate scoring evidence or leave a
- * successful attempt attached to a still-pending transfer.
+ * successful attempt attached to a still-pending transfer. The hidden reference
+ * answer is never copied into the client-readable `studentAttempts` collection.
  */
 export async function recordAttemptEvaluation(input: {
   sessionId: string;
@@ -691,20 +691,22 @@ export async function recordAttemptEvaluation(input: {
   semanticValidation?: SemanticValidationMetadata | null;
   transfer?: TransferAttemptPersistence;
 }): Promise<string> {
-  const attemptId = input.transfer
-    ? `${input.transfer.problemId}__evaluation`
-    : adminDb.collection('studentAttempts').doc().id;
-  const ref = adminDb.collection('studentAttempts').doc(attemptId);
-  const data = attemptDocument({ ...input, id: attemptId });
-
   if (!input.transfer) {
-    await ref.set(data);
+    const ref = adminDb.collection('studentAttempts').doc();
+    await ref.set(attemptDocument({ ...input, id: ref.id }));
     return ref.id;
   }
 
-  const transferRef = adminDb.collection('transferProblems').doc(input.transfer.problemId);
+  const problemId = await resolveIssuedTransferProblemId(
+    input.sessionId,
+    input.transfer.problemId,
+  );
+  const attemptId = `${problemId}__evaluation`;
+  const ref = adminDb.collection('studentAttempts').doc(attemptId);
+  const transferRef = adminDb.collection('transferProblems').doc(problemId);
   const batch = adminDb.batch();
-  batch.set(ref, data);
+
+  batch.set(ref, attemptDocument({ ...input, id: attemptId }));
   batch.update(transferRef, {
     status: 'evaluated',
     evaluatedAt: FieldValue.serverTimestamp(),
