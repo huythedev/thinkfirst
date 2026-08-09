@@ -1,17 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { resolveModelDriver, modelNameFor } from '@/lib/ai/model-client';
+import {
+  getModelClient,
+  modelNameFor,
+  resolveModelDriver,
+} from '@/lib/ai/model-client';
 import { deterministicModelHandler } from '@/lib/ai/mock-model';
 import { parseIntentAnalysis, parseTutorResponse } from '@/lib/types/ai/model-output';
 
-/**
- * The model driver seam, and the two defects the evaluation suite found on its
- * first run.
- *
- * Both fixes are covered here rather than only in `npm run eval`, because the
- * eval suite is a report and this is a gate: `npm test` is what CI runs.
- */
-
-/** `NodeJS.ProcessEnv` requires `NODE_ENV`, so fixtures build one explicitly. */
 function env(overrides: Record<string, string | undefined>): NodeJS.ProcessEnv {
   return overrides as unknown as NodeJS.ProcessEnv;
 }
@@ -28,18 +23,25 @@ describe('model driver selection', () => {
   });
 
   it('refuses the mock in production even when the variable is set', () => {
-    // A mock tutor on a real deployment is worse than an outage: an outage is
-    // visible, whereas fabricated tutoring looks like the product working.
     expect(resolveModelDriver(env({ AI_MODEL_DRIVER: 'mock', NODE_ENV: 'production' }))).toBe(
       'live',
     );
   });
 
+  it('fails before an SDK call when the live driver has no API key', () => {
+    expect(() => getModelClient(env({ NODE_ENV: 'production' }))).toThrow(/GEMINI_API_KEY/);
+    expect(() => getModelClient(env({ NODE_ENV: 'development' }))).toThrow(/GEMINI_API_KEY/);
+  });
+
+  it('does not require a live key for an explicit non-production mock', () => {
+    expect(() => getModelClient(env({ AI_MODEL_DRIVER: 'mock', NODE_ENV: 'test' }))).not.toThrow();
+  });
+
   it('marks a mock-produced turn so stored data does not overstate its provenance', () => {
-    expect(modelNameFor('gemini-2.5-pro', env({ AI_MODEL_DRIVER: 'mock' }))).toBe(
-      'mock:gemini-2.5-pro',
+    expect(modelNameFor('gemini-3.6-flash', env({ AI_MODEL_DRIVER: 'mock' }))).toBe(
+      'mock:gemini-3.6-flash',
     );
-    expect(modelNameFor('gemini-2.5-pro', env({}))).toBe('gemini-2.5-pro');
+    expect(modelNameFor('gemini-3.6-flash', env({}))).toBe('gemini-3.6-flash');
   });
 });
 
@@ -98,25 +100,18 @@ describe('deterministic mock handler', () => {
 });
 
 describe('structured output: fenced JSON (found by the evaluation suite)', () => {
-  // Providers frequently wrap structured output in a markdown fence even when a
-  // response schema is supplied. Rejecting it produced a 502 for a payload that
-  // was structurally correct, costing the student their turn.
   const payload =
     '{"messageMarkdown":"Try factoring.","responseType":"hint","hintLevel":2,"finalAnswerIncluded":false,"internalConceptTags":[]}';
 
   it('accepts JSON wrapped in a ```json fence', () => {
-    const parsed = parseTutorResponse('```json\n' + payload + '\n```');
-    expect(parsed.ok).toBe(true);
+    expect(parseTutorResponse('```json\n' + payload + '\n```').ok).toBe(true);
   });
 
   it('accepts JSON wrapped in a bare fence', () => {
-    const parsed = parseTutorResponse('```\n' + payload + '\n```');
-    expect(parsed.ok).toBe(true);
+    expect(parseTutorResponse('```\n' + payload + '\n```').ok).toBe(true);
   });
 
   it('still rejects prose that merely mentions a fence', () => {
-    // The unwrapping is deliberately narrow. Anything that scanned for the first
-    // brace would start accepting explanations with an object buried in them.
     expect(parseTutorResponse('Here is some ```json``` for you').ok).toBe(false);
     expect(parseTutorResponse('I cannot help with that.').ok).toBe(false);
   });
