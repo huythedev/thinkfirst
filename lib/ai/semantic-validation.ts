@@ -16,6 +16,7 @@ import {
 } from '@/services/ai-gateway/src/prompts/semantic-validator.v1';
 
 export type SemanticValidationKind =
+  | 'intent_classification'
   | 'tutor_response'
   | 'attempt_evaluation'
   | 'image_extraction'
@@ -43,7 +44,6 @@ export interface SemanticImageInput {
 
 export interface SemanticValidationResult {
   validation: SemanticValidation | null;
-  /** False when no structurally valid verifier result was produced. */
   available: boolean;
   /** True when this validation kind produced a usable, sufficiently confident verdict. */
   approved: boolean;
@@ -74,10 +74,8 @@ function isUsableValidation(
 }
 
 /**
- * The mock driver tests orchestration, not model quality. Return a conservative,
- * structurally valid canned verdict so E2E can exercise the fail-closed branches
- * without spending quota. Production never enters this branch because the model
- * driver refuses `mock` under NODE_ENV=production.
+ * Mock mode tests orchestration, not model quality. Production never enters this
+ * branch because `resolveModelDriver` refuses mock mode under NODE_ENV=production.
  */
 function mockValidation(kind: SemanticValidationKind, input: unknown): SemanticValidation {
   if (kind !== 'transfer_answer') {
@@ -119,11 +117,10 @@ function mockValidation(kind: SemanticValidationKind, input: unknown): SemanticV
 /**
  * Run an independent Gemini semantic verification pass.
  *
- * Provider structured output is followed by our own Zod parse. The verifier is
- * fail-closed: malformed output is unavailable, never an implicit approval.
- * Static verifier instructions are a system instruction; all candidate/model
- * output is serialized inside an explicit data boundary in the user turn so
- * embedded prompt-injection text cannot become an instruction by concatenation.
+ * Provider structured output is followed by our own Zod parse. Candidate/model
+ * output is serialized inside an explicit data boundary in the user turn; static
+ * verifier instructions remain in the system instruction. Malformed output is
+ * unavailable, never an implicit approval.
  */
 export async function runSemanticValidation(input: {
   validationKind: SemanticValidationKind;
