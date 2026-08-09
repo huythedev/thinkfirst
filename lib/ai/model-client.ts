@@ -34,6 +34,31 @@ export type ModelDriver = 'live' | 'mock';
 /** Set by tests and the evaluation harness. Never set in production. */
 const DRIVER_ENV = 'AI_MODEL_DRIVER';
 
+/** Stable default used by every shipped Gemini role unless explicitly overridden. */
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash';
+
+const GEMINI_MODEL_ENV_VARS = [
+  'GEMINI_TUTOR_MODEL',
+  'GEMINI_CLASSIFIER_MODEL',
+  'GEMINI_EVALUATOR_MODEL',
+  'GEMINI_TRANSFER_MODEL',
+  'GEMINI_EXTRACTION_MODEL',
+] as const;
+
+/**
+ * Populate missing/blank model overrides once at module load. Call sites still
+ * read their role-specific env var, so an explicit Cloud Run or local override
+ * wins, while an omitted variable can no longer fall through to an older model
+ * hardcoded elsewhere in the application.
+ */
+export function applyDefaultGeminiModelEnv(env: NodeJS.ProcessEnv = process.env): void {
+  for (const variable of GEMINI_MODEL_ENV_VARS) {
+    if (!env[variable]?.trim()) env[variable] = DEFAULT_GEMINI_MODEL;
+  }
+}
+
+applyDefaultGeminiModelEnv();
+
 export function resolveModelDriver(env: NodeJS.ProcessEnv = process.env): ModelDriver {
   if (env[DRIVER_ENV] !== 'mock') return 'live';
 
