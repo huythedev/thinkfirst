@@ -3,19 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 /**
  * Does the tutoring endpoint *consume* the safety classification?
  *
- * This is the Phase 8 criterion, and it is deliberately tested against the real
- * route handler rather than a mirror of its logic. The existing coverage in
- * `tests/policy/section-18-rules.test.ts` proves `generateResponsePlan` returns
- * `safety_redirect`, and it passed happily while the route took that plan, called
- * the tutor model anyway, and shipped whatever came back. A pure-function test
- * cannot see what its caller does with the result — the same trap Phase 7 hit with
- * rule R6, recorded then and applicable again.
- *
- * So every collaborator is mocked and the handler itself is imported. The
- * load-bearing assertion is that the tutor model is never called: not a proxy for
- * correct behavior, but the behavior itself, since a model call is exactly what
- * puts the most sensitive response in the application on the far side of a trust
- * boundary.
+ * This is deliberately tested against the real route handler. The load-bearing
+ * assertion is still that an unsafe turn stops after classification and uses the
+ * deterministic safety composer: neither tutor generation nor semantic tutor
+ * validation should run on a crisis path.
  */
 
 const verifyRequest = vi.fn();
@@ -25,6 +16,7 @@ const generateContent = vi.fn();
 const checkRateLimit = vi.fn();
 const recordSafetyEvent = vi.fn();
 const recordLearningEvidenceProbe = vi.fn();
+const runSemanticValidation = vi.fn();
 const turnSet = vi.fn();
 const sessionUpdate = vi.fn();
 
@@ -89,12 +81,22 @@ vi.mock('@/lib/safety/safety-event', () => ({
   },
 }));
 
-// The evidence pipeline. Every export is stubbed so that *any* call to it shows up
-// as a failed expectation rather than a network attempt.
+vi.mock('@/lib/ai/semantic-validation', () => ({
+  runSemanticValidation: (...args: unknown[]) => runSemanticValidation(...args),
+}));
+
+// The evidence pipeline. Every export used by the route is stubbed so that any
+// unexpected learning-evidence work on a safety turn shows up as a failed probe
+// rather than a network attempt.
 vi.mock('@/lib/session/evaluation', () => ({
   evaluateAttempt: (...args: unknown[]) => {
     recordLearningEvidenceProbe('evaluateAttempt', ...args);
-    return Promise.resolve({ available: false, evaluation: null, modelName: 'stub' });
+    return Promise.resolve({
+      available: false,
+      evaluation: null,
+      modelName: 'stub',
+      semanticValidation: null,
+    });
   },
   generateTransferProblem: (...args: unknown[]) => {
     recordLearningEvidenceProbe('generateTransferProblem', ...args);
@@ -104,9 +106,14 @@ vi.mock('@/lib/session/evaluation', () => ({
     recordLearningEvidenceProbe('recordAttemptEvaluation', ...args);
     return Promise.resolve();
   },
-  resolveTransferOutcome: (...args: unknown[]) => {
-    recordLearningEvidenceProbe('resolveTransferOutcome', ...args);
-    return Promise.resolve(null);
+  validateTransferOutcome: (...args: unknown[]) => {
+    recordLearningEvidenceProbe('validateTransferOutcome', ...args);
+    return Promise.resolve({
+      outcome: null,
+      correctnessSource: 'unavailable',
+      confidence: 0,
+      semanticValidation: null,
+    });
   },
 }));
 
@@ -184,6 +191,19 @@ beforeEach(() => {
   loadTranscript.mockResolvedValue([
     { actor: 'student', content: 'I need help', sequence: 1 },
   ]);
+  runSemanticValidation.mockResolvedValue({
+    available: true,
+    approved: true,
+    modelName: 'mock:validator',
+    promptVersion: 'semantic-validator-v1',
+    validation: {
+      approved: true,
+      verdict: 'approved',
+      confidence: 0.95,
+      issues: [],
+      correctedValue: null,
+    },
+  });
 });
 
 describe('the endpoint consumes the safety classification', () => {
@@ -193,8 +213,8 @@ describe('the endpoint consumes the safety classification', () => {
     const response = await POST(request({ message: 'I want to hurt myself', sessionId: 's1' }) as never);
 
     expect(response.status).toBe(200);
-    // Exactly one model call: the classifier. The tutor is not consulted.
     expect(generateContent).toHaveBeenCalledTimes(1);
+    expect(runSemanticValidation).not.toHaveBeenCalled();
   });
 
   it('returns the deterministic safety message with support guidance', async () => {
@@ -225,9 +245,6 @@ describe('the endpoint consumes the safety classification', () => {
   });
 
   it('does not score a safety turn as learning evidence', async () => {
-    // §56.4 forbids scoring a student down for a system failure. Scoring them on a
-    // disclosure of harm would be worse, and would also send it to the evaluator
-    // model and copy it into a third collection.
     classifierReturns('self_harm');
 
     await POST(request({ message: 'I want to hurt myself', sessionId: 's1' }) as never);
@@ -236,8 +253,6 @@ describe('the endpoint consumes the safety classification', () => {
   });
 
   it('does not reset a hint level the student had already earned', async () => {
-    // R8 sets allowedHintLevel to 0. Persisting that would undo real progress the
-    // moment a conversation turned, which is a punishment for disclosing.
     classifierReturns('bullying');
 
     const response = await POST(request({ message: 'people are mean to me', sessionId: 's1' }) as never);
@@ -263,7 +278,6 @@ describe('the endpoint consumes the safety classification', () => {
     expect(turn.safetyMetadata.category).toBe('self_harm');
     expect(turn.safetyMetadata.responseClass).toBe('emergency_guidance');
     expect(turn.safetyMetadata.flaggedForTeacherReview).toBe(true);
-    // Honest provenance: no model produced this text.
     expect(turn.tutorMetadata.modelName).toContain('deterministic');
   });
 
@@ -276,13 +290,10 @@ describe('the endpoint consumes the safety classification', () => {
     expect(body.safety.responseClass).toBe('educational_redirect');
     expect(body.safety.teacherNotified).toBe(false);
     expect(recordSafetyEvent.mock.calls[0][0].flagForTeacherReview).toBe(false);
-    // Still no tutor call: the redirect is deterministic too.
     expect(generateContent).toHaveBeenCalledTimes(1);
   });
 
-  it('leaves an ordinary turn on the normal path', async () => {
-    // The negative case. Without it, a bug that treated every turn as unsafe would
-    // pass every test above.
+  it('leaves an ordinary turn on the normal path and semantically verifies the tutor output', async () => {
     classifierReturns('none');
     generateContent
       .mockResolvedValueOnce({
@@ -316,8 +327,8 @@ describe('the endpoint consumes the safety classification', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    // Two calls: classifier and tutor. The safety branch was not taken.
     expect(generateContent).toHaveBeenCalledTimes(2);
+    expect(runSemanticValidation).toHaveBeenCalledTimes(1);
     expect(body.tutorData.responseType).not.toBe('safety_message');
     expect(body.safety).toBeUndefined();
   });
@@ -341,7 +352,6 @@ describe('the endpoint enforces the rate limit', () => {
   });
 
   it('spends no model call on a refused request', async () => {
-    // The point of the limit: bounding spend, not merely returning an error.
     checkRateLimit.mockResolvedValue({
       allowed: false,
       scope: 'ip',
@@ -358,8 +368,6 @@ describe('the endpoint enforces the rate limit', () => {
   });
 
   it('does not spend a rate-limit unit on an unauthenticated request', async () => {
-    // Otherwise an anonymous flood exhausts a real student's quota, turning the
-    // limiter into the denial-of-service it exists to prevent.
     verifyRequest.mockResolvedValue({
       uid: null,
       missingToken: true,
