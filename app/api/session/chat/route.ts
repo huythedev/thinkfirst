@@ -22,6 +22,7 @@ import { verifyRequest } from '@/lib/firebase/verify-request';
 import { adminDb } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { nextHintLevel } from '@/lib/session/hint-ladder';
+import { reserveTurnSequences } from '@/lib/session/turn-sequence';
 import {
   loadTranscript,
   resolvePolicyInputs,
@@ -118,37 +119,28 @@ function nextTranscriptSequence(turns: TranscriptTurn[]): number {
 }
 
 /**
- * `sessionTurns` are now server-authored. The legacy matching branch is retained
- * only so an in-flight request from the immediately previous client contract is
- * not duplicated during rollout; Firestore rules prevent new clients from
- * creating such turns directly.
+ * All transcript writes are server-authored. The request message is persisted
+ * under Admin credentials at the sequence number reserved transactionally for
+ * this request, so a client cannot forge policy/scoring history or choose its
+ * ordering.
  */
 async function normalizeTranscriptForRequest(input: {
   sessionId: string;
   studentId: string;
   message: string;
   transcript: TranscriptTurn[];
+  currentStudentSequence: number;
 }): Promise<{
   priorTranscript: TranscriptTurn[];
   completeTranscript: TranscriptTurn[];
   currentStudentSequence: number;
 }> {
-  const last = input.transcript.at(-1);
-  if (last?.actor === 'student' && last.content === input.message) {
-    return {
-      priorTranscript: input.transcript.slice(0, -1),
-      completeTranscript: input.transcript,
-      currentStudentSequence: last.sequence,
-    };
-  }
-
-  const sequence = nextTranscriptSequence(input.transcript);
   const ref = adminDb.collection('sessionTurns').doc();
   await ref.set({
     id: ref.id,
     sessionId: input.sessionId,
     studentId: input.studentId,
-    sequence,
+    sequence: input.currentStudentSequence,
     actor: 'student',
     content: input.message,
     createdAt: FieldValue.serverTimestamp(),
@@ -158,12 +150,12 @@ async function normalizeTranscriptForRequest(input: {
   const currentTurn: TranscriptTurn = {
     actor: 'student',
     content: input.message,
-    sequence,
+    sequence: input.currentStudentSequence,
   };
   return {
     priorTranscript: input.transcript,
     completeTranscript: [...input.transcript, currentTurn],
-    currentStudentSequence: sequence,
+    currentStudentSequence: input.currentStudentSequence,
   };
 }
 
@@ -266,13 +258,23 @@ export async function POST(req: NextRequest) {
 
     const policy = resolution.inputs;
     const loadedTranscript = await loadTranscript(sessionId);
+    const [currentStudentSequence, assistantSequence] = await reserveTurnSequences(
+      sessionId,
+      nextTranscriptSequence(loadedTranscript),
+      2,
+    );
+    if (!currentStudentSequence || !assistantSequence) {
+      throw new Error('Failed to reserve transcript sequence numbers.');
+    }
+
     const normalized = await normalizeTranscriptForRequest({
       sessionId,
       studentId: auth.uid,
       message,
       transcript: loadedTranscript,
+      currentStudentSequence,
     });
-    const { priorTranscript, completeTranscript } = normalized;
+    const { priorTranscript } = normalized;
 
     const conversationHistory = priorTranscript
       .map((turn) => `${turn.actor === 'student' ? 'Student' : 'Tutor'}: ${turn.content}`)
@@ -349,8 +351,6 @@ export async function POST(req: NextRequest) {
       requireTransferProblem: policy.requireTransferProblem,
       extractionConfidence: policy.extractionConfirmed ? undefined : policy.extractionConfidence,
     });
-
-    const assistantSequence = nextTranscriptSequence(completeTranscript);
 
     if (responsePlan.action === 'safety_redirect' && intentData.safetyCategory !== 'none') {
       return await handleSafetyTurn({
@@ -783,7 +783,14 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
       if (generated) {
         const ref = adminDb.collection('transferProblems').doc();
         const transferTurnRef = adminDb.collection('sessionTurns').doc();
-        const transferSequence = input.assistantSequence + 1;
+        const [transferSequence] = await reserveTurnSequences(
+          input.sessionId,
+          input.assistantSequence + 1,
+          1,
+        );
+        if (!transferSequence) {
+          throw new Error('Failed to reserve transfer turn sequence.');
+        }
         const batch = adminDb.batch();
 
         batch.set(ref, {
