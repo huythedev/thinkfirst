@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * Route-level trust-boundary tests. The browser normally writes the current
- * student turn before calling chat, so the transcript mock mirrors that contract:
- * prior assistant task + current persisted student message.
+ * Route-level trust-boundary tests. Student turns are server-authored by the chat
+ * endpoint, so the transcript mock contains only history that existed before the
+ * current request. The route must persist the current student message itself.
  */
 
 const verifyRequest = vi.fn();
@@ -16,7 +16,6 @@ const recordLearningEvidenceProbe = vi.fn();
 const runSemanticValidation = vi.fn();
 const turnSet = vi.fn();
 const sessionUpdate = vi.fn();
-let currentRequestMessage = '';
 
 vi.mock('@google/genai', () => ({
   GoogleGenAI: class {
@@ -36,29 +35,36 @@ vi.mock('@/lib/firebase/verify-request', () => ({
   verifyRequest: (...args: unknown[]) => verifyRequest(...args),
 }));
 
-vi.mock('@/lib/firebase/admin', () => ({
-  adminAuth: {},
-  adminDb: {
-    collection: (name: string) => ({
-      doc: (id?: string) => ({
-        id: id ?? 'generated-turn-id',
-        set: (data: unknown) => {
-          turnSet(name, data);
-          return Promise.resolve();
-        },
-        update: (data: unknown) => {
-          sessionUpdate(name, data);
-          return Promise.resolve();
-        },
+vi.mock('@/lib/firebase/admin', () => {
+  const collection = (name: string): any => ({
+    doc: (id?: string) => ({
+      id: id ?? 'generated-turn-id',
+      set: (data: unknown) => {
+        turnSet(name, data);
+        return Promise.resolve();
+      },
+      update: (data: unknown) => {
+        sessionUpdate(name, data);
+        return Promise.resolve();
+      },
+    }),
+    add: () => Promise.resolve({ id: 'generated-id' }),
+    where: () => collection(name),
+    get: () => Promise.resolve({ empty: true, docs: [] }),
+  });
+
+  return {
+    adminAuth: {},
+    adminDb: {
+      collection,
+      batch: () => ({
+        set: vi.fn(),
+        update: vi.fn(),
+        commit: () => Promise.resolve(),
       }),
-      add: () => Promise.resolve({ id: 'generated-id' }),
-    }),
-    batch: () => ({
-      set: vi.fn(),
-      commit: () => Promise.resolve(),
-    }),
-  },
-}));
+    },
+  };
+});
 
 vi.mock('firebase-admin/firestore', () => ({
   FieldValue: { serverTimestamp: () => 'SERVER_TIMESTAMP' },
@@ -146,13 +152,6 @@ const POLICY = {
 };
 
 function request(body: unknown, headers: Record<string, string> = {}): Request {
-  if (
-    typeof body === 'object' &&
-    body !== null &&
-    typeof (body as Record<string, unknown>).message === 'string'
-  ) {
-    currentRequestMessage = (body as Record<string, string>).message;
-  }
   return new Request('http://localhost/api/session/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...headers },
@@ -198,7 +197,6 @@ const semanticApproval = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  currentRequestMessage = '';
   verifyRequest.mockResolvedValue({
     uid: 'student-1',
     missingToken: false,
@@ -213,24 +211,21 @@ beforeEach(() => {
     unavailable: false,
   });
   resolvePolicyInputs.mockResolvedValue({ status: 'ok', inputs: POLICY });
-  loadTranscript.mockImplementation(() =>
-    Promise.resolve([
-      { actor: 'student', content: 'Earlier attempt', sequence: 1 },
-      {
-        actor: 'assistant',
-        content: 'Try the next step.',
-        sequence: 2,
-        responsePlan: {
-          action: 'provide_hint',
-          allowedHintLevel: 1,
-          requiresExplanation: false,
-          requiresVerification: false,
-        },
-        tutorMetadata: { responseType: 'hint', studentActionRequired: 'Try the next step.' },
+  loadTranscript.mockResolvedValue([
+    { actor: 'student', content: 'Earlier attempt', sequence: 1 },
+    {
+      actor: 'assistant',
+      content: 'Try the next step.',
+      sequence: 2,
+      responsePlan: {
+        action: 'provide_hint',
+        allowedHintLevel: 1,
+        requiresExplanation: false,
+        requiresVerification: false,
       },
-      { actor: 'student', content: currentRequestMessage, sequence: 3 },
-    ]),
-  );
+      tutorMetadata: { responseType: 'hint', studentActionRequired: 'Try the next step.' },
+    },
+  ]);
   runSemanticValidation.mockResolvedValue(semanticApproval);
 });
 
@@ -244,6 +239,19 @@ describe('the endpoint consumes and verifies the safety classification', () => {
     expect(generateContent).toHaveBeenCalledTimes(1);
     expect(runSemanticValidation).toHaveBeenCalledTimes(1);
     expect(runSemanticValidation.mock.calls[0][0].validationKind).toBe('intent_classification');
+  });
+
+  it('persists the current student turn under server credentials', async () => {
+    classifierReturns('self_harm');
+
+    await POST(request({ message: 'I want to hurt myself', sessionId: 's1' }) as never);
+
+    const studentWrite = turnSet.mock.calls.find(
+      ([name, data]) =>
+        name === 'sessionTurns' && (data as Record<string, unknown>).actor === 'student',
+    );
+    expect(studentWrite).toBeDefined();
+    expect((studentWrite![1] as Record<string, unknown>).studentId).toBe('student-1');
   });
 
   it('returns the deterministic safety message with support guidance', async () => {
@@ -385,6 +393,11 @@ describe('the endpoint consumes and verifies the safety classification', () => {
     expect(runSemanticValidation.mock.calls[1][0].validationKind).toBe('tutor_response');
     expect(body.tutorData.responseType).not.toBe('safety_message');
     expect(body.safety).toBeUndefined();
+    expect(recordLearningEvidenceProbe).toHaveBeenCalledWith(
+      'persistSessionEvidence',
+      'student-1',
+      's1',
+    );
   });
 });
 
