@@ -1,12 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * Does the tutoring endpoint *consume* the safety classification?
- *
- * This is deliberately tested against the real route handler. The load-bearing
- * assertion is still that an unsafe turn stops after classification and uses the
- * deterministic safety composer: neither tutor generation nor semantic tutor
- * validation should run on a crisis path.
+ * Does the tutoring endpoint consume and independently verify the safety
+ * classification before deterministic policy? A crisis turn may spend the
+ * classifier + classifier-verifier calls, but it must never call the tutor or
+ * learning-evidence pipeline; response composition remains deterministic.
  */
 
 const verifyRequest = vi.fn();
@@ -85,9 +83,6 @@ vi.mock('@/lib/ai/semantic-validation', () => ({
   runSemanticValidation: (...args: unknown[]) => runSemanticValidation(...args),
 }));
 
-// The evidence pipeline. Every export used by the route is stubbed so that any
-// unexpected learning-evidence work on a safety turn shows up as a failed probe
-// rather than a network attempt.
 vi.mock('@/lib/session/evaluation', () => ({
   evaluateAttempt: (...args: unknown[]) => {
     recordLearningEvidenceProbe('evaluateAttempt', ...args);
@@ -149,7 +144,6 @@ function request(body: unknown, headers: Record<string, string> = {}): Request {
   });
 }
 
-/** Queues the classifier reply; the tutor call, if it happens, gets a marker. */
 function classifierReturns(safetyCategory: string, confidence = 0.9) {
   generateContent.mockImplementation(() =>
     Promise.resolve({
@@ -172,6 +166,20 @@ function classifierReturns(safetyCategory: string, confidence = 0.9) {
   );
 }
 
+const semanticApproval = {
+  available: true,
+  approved: true,
+  modelName: 'mock:validator',
+  promptVersion: 'semantic-validator-v2',
+  validation: {
+    approved: true,
+    verdict: 'approved',
+    confidence: 0.95,
+    issues: [],
+    correctedValue: null,
+  },
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   verifyRequest.mockResolvedValue({
@@ -191,30 +199,19 @@ beforeEach(() => {
   loadTranscript.mockResolvedValue([
     { actor: 'student', content: 'I need help', sequence: 1 },
   ]);
-  runSemanticValidation.mockResolvedValue({
-    available: true,
-    approved: true,
-    modelName: 'mock:validator',
-    promptVersion: 'semantic-validator-v1',
-    validation: {
-      approved: true,
-      verdict: 'approved',
-      confidence: 0.95,
-      issues: [],
-      correctedValue: null,
-    },
-  });
+  runSemanticValidation.mockResolvedValue(semanticApproval);
 });
 
-describe('the endpoint consumes the safety classification', () => {
-  it('never calls the tutor model on a self-harm disclosure', async () => {
+describe('the endpoint consumes and verifies the safety classification', () => {
+  it('verifies classification but never calls the tutor model on a self-harm disclosure', async () => {
     classifierReturns('self_harm');
 
     const response = await POST(request({ message: 'I want to hurt myself', sessionId: 's1' }) as never);
 
     expect(response.status).toBe(200);
     expect(generateContent).toHaveBeenCalledTimes(1);
-    expect(runSemanticValidation).not.toHaveBeenCalled();
+    expect(runSemanticValidation).toHaveBeenCalledTimes(1);
+    expect(runSemanticValidation.mock.calls[0][0].validationKind).toBe('intent_classification');
   });
 
   it('returns the deterministic safety message with support guidance', async () => {
@@ -265,7 +262,7 @@ describe('the endpoint consumes the safety classification', () => {
     expect(levelWrites).toHaveLength(0);
   });
 
-  it('writes the turn with the safety disposition and a scoring exclusion', async () => {
+  it('writes safety and classifier-verifier provenance on the turn', async () => {
     classifierReturns('self_harm');
 
     await POST(request({ message: 'I want to hurt myself', sessionId: 's1' }) as never);
@@ -279,6 +276,7 @@ describe('the endpoint consumes the safety classification', () => {
     expect(turn.safetyMetadata.responseClass).toBe('emergency_guidance');
     expect(turn.safetyMetadata.flaggedForTeacherReview).toBe(true);
     expect(turn.tutorMetadata.modelName).toContain('deterministic');
+    expect(turn.tutorMetadata.classifierSemanticValidation.promptVersion).toBe('semantic-validator-v2');
   });
 
   it('redirects an off-limits question without flagging the student', async () => {
@@ -293,8 +291,31 @@ describe('the endpoint consumes the safety classification', () => {
     expect(generateContent).toHaveBeenCalledTimes(1);
   });
 
-  it('leaves an ordinary turn on the normal path and semantically verifies the tutor output', async () => {
+  it('uses a verifier-detected safety correction conservatively', async () => {
     classifierReturns('none');
+    runSemanticValidation.mockResolvedValueOnce({
+      available: true,
+      approved: false,
+      modelName: 'mock:validator',
+      promptVersion: 'semantic-validator-v2',
+      validation: {
+        approved: false,
+        verdict: 'rejected',
+        confidence: 0.93,
+        issues: ['The message contains a self-harm disclosure.'],
+        correctedValue: 'self_harm',
+      },
+    });
+
+    const response = await POST(request({ message: 'I want to hurt myself', sessionId: 's1' }) as never);
+    const body = await response.json();
+
+    expect(body.tutorData.responseType).toBe('safety_message');
+    expect(body.safety.teacherNotified).toBe(true);
+    expect(generateContent).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves an ordinary turn on the normal path and verifies classifier then tutor', async () => {
     generateContent
       .mockResolvedValueOnce({
         text: JSON.stringify({
@@ -328,7 +349,9 @@ describe('the endpoint consumes the safety classification', () => {
 
     expect(response.status).toBe(200);
     expect(generateContent).toHaveBeenCalledTimes(2);
-    expect(runSemanticValidation).toHaveBeenCalledTimes(1);
+    expect(runSemanticValidation).toHaveBeenCalledTimes(2);
+    expect(runSemanticValidation.mock.calls[0][0].validationKind).toBe('intent_classification');
+    expect(runSemanticValidation.mock.calls[1][0].validationKind).toBe('tutor_response');
     expect(body.tutorData.responseType).not.toBe('safety_message');
     expect(body.safety).toBeUndefined();
   });
@@ -364,6 +387,7 @@ describe('the endpoint enforces the rate limit', () => {
     await POST(request({ message: 'hello', sessionId: 's1' }) as never);
 
     expect(generateContent).not.toHaveBeenCalled();
+    expect(runSemanticValidation).not.toHaveBeenCalled();
     expect(resolvePolicyInputs).not.toHaveBeenCalled();
   });
 
