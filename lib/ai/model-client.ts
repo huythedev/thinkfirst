@@ -34,12 +34,13 @@ export type ModelDriver = 'live' | 'mock';
 /** Set by tests and the evaluation harness. Never set in production. */
 const DRIVER_ENV = 'AI_MODEL_DRIVER';
 
-/** Stable default used by every shipped Gemini role unless explicitly overridden. */
+/** Stable default used by every configured Gemini role unless explicitly overridden. */
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash';
 
 const GEMINI_MODEL_ENV_VARS = [
   'GEMINI_TUTOR_MODEL',
   'GEMINI_CLASSIFIER_MODEL',
+  'GEMINI_VALIDATOR_MODEL',
   'GEMINI_EVALUATOR_MODEL',
   'GEMINI_TRANSFER_MODEL',
   'GEMINI_EXTRACTION_MODEL',
