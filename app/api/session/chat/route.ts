@@ -82,6 +82,36 @@ const tutorSchema: Schema = {
   required: ["messageMarkdown", "responseType", "hintLevel", "finalAnswerIncluded", "internalConceptTags"]
 };
 
+const SAFETY_CATEGORIES = new Set<Exclude<IntentAnalysis['safetyCategory'], 'none'>>([
+  'self_harm',
+  'abuse',
+  'sexual_content',
+  'violence',
+  'illegal_activity',
+  'bullying',
+  'personal_data',
+  'other',
+]);
+
+function correctedSafetyCategory(
+  value: string | null | undefined,
+): Exclude<IntentAnalysis['safetyCategory'], 'none'> | null {
+  if (!value || !SAFETY_CATEGORIES.has(value as Exclude<IntentAnalysis['safetyCategory'], 'none'>)) {
+    return null;
+  }
+  return value as Exclude<IntentAnalysis['safetyCategory'], 'none'>;
+}
+
+function semanticMetadata(result: Awaited<ReturnType<typeof runSemanticValidation>>) {
+  return {
+    available: result.available,
+    approved: result.approved,
+    modelName: result.modelName,
+    promptVersion: result.promptVersion,
+    confidence: result.validation?.confidence ?? 0,
+  };
+}
+
 export async function POST(req: NextRequest) {
   let failedSessionId: string | null = null;
 
@@ -142,8 +172,6 @@ export async function POST(req: NextRequest) {
     const startedAt = Date.now();
     const ai = getModelClient();
 
-    // Classifier output is untrusted data. The static instruction stays in the
-    // system channel while the transcript remains in the user turn.
     const classifierModel = configuredGeminiModel('classifier');
     const intentResponse = await ai.models.generateContent({
       model: classifierModel,
@@ -159,10 +187,49 @@ export async function POST(req: NextRequest) {
     if (!intentParse.ok) {
       console.warn('Classifier output rejected by server-side validation:', intentParse.detail);
     }
-    const intentData = intentParse.ok ? intentParse.value : SAFE_FALLBACK_INTENT;
 
-    // Gemini may classify content, but this deterministic policy layer alone
-    // decides disclosure permission and hint ceilings.
+    // Classification is itself a semantic policy input, so it gets an independent
+    // Gemini verification pass. The verifier cannot grant disclosure permission;
+    // it can only approve the classification or, for a missed safety signal,
+    // return one corrected safety-category token. All other disagreement falls
+    // back to the most restrictive ordinary classification.
+    const classifierValidation = await runSemanticValidation({
+      validationKind: 'intent_classification',
+      data: {
+        problem: policy.originalProblem,
+        conversationHistory,
+        studentMessage: message,
+        candidateAnalysis: intentParse.ok ? intentParse.value : null,
+      },
+    });
+
+    let intentData: IntentAnalysis;
+    if (intentParse.ok && classifierValidation.approved) {
+      intentData = intentParse.value;
+    } else {
+      const safetyCorrection = correctedSafetyCategory(
+        classifierValidation.validation?.correctedValue,
+      );
+      if (safetyCorrection) {
+        intentData = {
+          ...SAFE_FALLBACK_INTENT,
+          intent: 'unsafe',
+          safetyCategory: safetyCorrection,
+          detectedLanguage: intentParse.ok
+            ? intentParse.value.detectedLanguage
+            : policy.language,
+          confidence: classifierValidation.validation?.confidence ?? 0,
+        };
+      } else {
+        intentData = {
+          ...SAFE_FALLBACK_INTENT,
+          detectedLanguage: intentParse.ok
+            ? intentParse.value.detectedLanguage
+            : policy.language,
+        };
+      }
+    }
+
     const responsePlan = generateResponsePlan(intentData, {
       mode: policy.mode,
       strictness: policy.strictness,
@@ -174,9 +241,6 @@ export async function POST(req: NextRequest) {
       extractionConfidence: policy.extractionConfirmed ? undefined : policy.extractionConfidence,
     });
 
-    // Safety text remains deterministic after classification. The semantic
-    // verifier preference never moves crisis response composition or permission
-    // onto a model-controlled path.
     if (responsePlan.action === 'safety_redirect' && intentData.safetyCategory !== 'none') {
       return await handleSafetyTurn({
         sessionId,
@@ -188,6 +252,7 @@ export async function POST(req: NextRequest) {
         responsePlan,
         sequence: transcript.length + 1,
         classifierModel: modelNameFor(classifierModel),
+        classifierValidation: semanticMetadata(classifierValidation),
         latencyMs: Date.now() - startedAt,
         policy,
       });
@@ -236,9 +301,6 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
       );
     }
 
-    // The dedicated transfer generator owns transfer problem/reference-answer
-    // pairs. A tutor-invented transfer would let the student see problem A while
-    // scoring against hidden problem B, so fail closed instead of relabelling it.
     if (tutorData.responseType === 'transfer_problem') {
       console.error('Tutor attempted to emit a transfer problem outside the dedicated generator.');
       await markSessionSystemError(sessionId).catch(() => undefined);
@@ -248,9 +310,6 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
       );
     }
 
-    // Semantic correctness is independently checked after deterministic response
-    // enforcement and before the text is persisted or shown. The verifier can
-    // reject content but can never widen the response plan.
     const tutorValidation = await runSemanticValidation({
       validationKind: 'tutor_response',
       data: {
@@ -308,13 +367,8 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
           internalConceptTags: tutorData.internalConceptTags ?? [],
           planViolations: enforcement.violations,
           modelOutputRevalidated: true,
-          semanticValidation: {
-            available: tutorValidation.available,
-            approved: tutorValidation.approved,
-            modelName: tutorValidation.modelName,
-            promptVersion: tutorValidation.promptVersion,
-            confidence: tutorValidation.validation?.confidence ?? 0,
-          },
+          classifierSemanticValidation: semanticMetadata(classifierValidation),
+          semanticValidation: semanticMetadata(tutorValidation),
           generationConfig: {
             responseMimeType: 'application/json',
           },
@@ -357,7 +411,6 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
         policySources: policy.sources,
       },
     });
-
   } catch (error: any) {
     console.error('Chat error:', error);
 
@@ -376,6 +429,14 @@ async function markSessionSystemError(sessionId: string): Promise<void> {
   });
 }
 
+interface ValidationMetadata {
+  available: boolean;
+  approved: boolean;
+  modelName: string;
+  promptVersion: string;
+  confidence: number;
+}
+
 interface SafetyTurnInput {
   sessionId: string;
   studentId: string;
@@ -386,15 +447,11 @@ interface SafetyTurnInput {
   responsePlan: TutorResponsePlan;
   sequence: number;
   classifierModel: string;
+  classifierValidation: ValidationMetadata;
   latencyMs: number;
   policy: ResolvedPolicyInputs;
 }
 
-/**
- * Safety turns use deterministic text, are excluded from academic scoring, and
- * do not move the hint ladder. Classification may be model-produced; response
- * content and policy consequence are not.
- */
 async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
   const safety = composeSafetyResponse(input.category, input.language);
 
@@ -437,6 +494,7 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
       promptVersion: 'safety-response-v1',
       classifierPromptVersion: CLASSIFIER_PROMPT_VERSION,
       classifierModel: input.classifierModel,
+      classifierSemanticValidation: input.classifierValidation,
       latencyMs: input.latencyMs,
       confidence: input.confidence,
       checkForUnderstanding: null,
@@ -451,6 +509,7 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
       responseClass: safety.responseClass,
       flaggedForTeacherReview: safety.flagForTeacherReview,
       classifierModel: input.classifierModel,
+      classifierSemanticValidation: input.classifierValidation,
     },
     excludedFromScoring: true,
   });
@@ -518,10 +577,9 @@ interface EvidenceSummary {
 }
 
 /**
- * Record learning evidence for this turn, then recompute and persist the trusted
- * score. The evaluator sees the student evidence that existed before the current
- * tutor reply, so the tutor cannot leak a correction into the judgement of the
- * student's preceding attempt.
+ * Evaluate only the student evidence that existed before the current tutor reply,
+ * then independently verify the evaluator output. This prevents the tutor from
+ * leaking its own correction into the judgement of the student's preceding work.
  */
 async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSummary> {
   const summary: EvidenceSummary = {
@@ -602,8 +660,6 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
       });
     }
 
-    // A transfer is considered issued only after the exact Gemini-validated
-    // problem is persisted as a visible assistant turn.
     if (input.responsePlan.generateTransferProblem) {
       const generated = await generateTransferProblem({
         problem: input.policy.originalProblem,
@@ -663,9 +719,6 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
       }
     }
   } catch (error) {
-    // A partial evidence-persistence failure is a system fault. Mark the session
-    // so scoring excludes it rather than turning missing/half-written evidence
-    // into student behavior.
     await markSessionSystemError(input.sessionId).catch(() => undefined);
     console.warn(
       'Learning evidence collection failed:',
@@ -689,11 +742,6 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
   return summary;
 }
 
-/**
- * Most recent transfer problem still awaiting evaluation. Both the public
- * problem and hidden answer are loaded so answer verification is grounded in the
- * exact problem the student saw.
- */
 async function loadPendingTransfer(sessionId: string): Promise<
   | {
       id: string;
