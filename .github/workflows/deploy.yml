@@ -33,12 +33,13 @@ jobs:
           args: deploy --only firestore:rules,firestore:indexes,storage --project ${{ vars.FIREBASE_PROJECT_ID }}
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-      - name: Deploy application to Cloud Run
+      - name: Authenticate Google Cloud
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
       - uses: google-github-actions/setup-gcloud@v2
-      - run: |
+      - name: Deploy application to Cloud Run
+        run: |
           gcloud run deploy thinkfirst-development \
             --source . \
             --project "${{ vars.FIREBASE_PROJECT_ID }}" \
@@ -72,7 +73,8 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
       - uses: google-github-actions/setup-gcloud@v2
-      - run: |
+      - name: Deploy application to Cloud Run
+        run: |
           gcloud run deploy thinkfirst-staging \
             --source . \
             --project "${{ vars.FIREBASE_PROJECT_ID }}" \
@@ -90,6 +92,12 @@ jobs:
       url: ${{ vars.APP_URL }}
     steps:
       - uses: actions/checkout@v4
+      - name: Deploy Firebase rules and indexes
+        uses: w9jds/firebase-action@v14
+        with:
+          args: deploy --only firestore:rules,firestore:indexes,storage --project ${{ vars.FIREBASE_PROJECT_ID }}
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
       - name: Authenticate Google Cloud
         uses: google-github-actions/auth@v2
         with:
