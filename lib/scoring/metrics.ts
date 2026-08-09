@@ -64,8 +64,9 @@ export interface RawAttempt {
     reasoningRubric?: Partial<ReasoningRubric>;
     verificationRubric?: Partial<VerificationRubric>;
     transferOutcome?: TransferOutcome;
-    correctnessSource?: 'deterministic' | 'evaluator' | 'unavailable';
+    correctnessSource?: 'deterministic' | 'validator' | 'evaluator' | 'unavailable';
     correctnessConfidence?: number;
+    /** Legacy snapshots may contain this; new production writes keep it absent/null. */
     referenceAnswer?: string | null;
     studentAnswer?: string | null;
     accessibilityAccommodation?: boolean;
