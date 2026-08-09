@@ -281,8 +281,6 @@ export async function evaluateAttempt(context: EvaluationContext): Promise<Attem
       semanticValidation: metadata,
     };
   } catch (error) {
-    // A failed evaluation must never fail the tutoring turn. The student still
-    // gets their response; the score records that this observation is missing.
     console.warn(
       'Evaluator or evaluator-validation call failed:',
       error instanceof Error ? error.message : 'unknown error',
@@ -498,8 +496,8 @@ export interface ValidatedTransferOutcome extends TransferOutcomeResult {
 /**
  * Load-bearing transfer correctness is Gemini-first for now. The local checker
  * remains a signal, but a deterministic verdict reaches confidence 1.0 only when
- * an independent Gemini verifier agrees. A disagreement is unavailable rather
- * than a confident student penalty.
+ * an independent Gemini verifier agrees exactly. A disagreement or an unable
+ * verifier is unavailable rather than a confident student penalty.
  *
  * When the local checker cannot decide, the independent Gemini judgement is the
  * model-based path required by §56.2 and remains capped at confidence 0.7.
@@ -566,7 +564,7 @@ export async function validateTransferOutcome(input: {
   }
 
   if (deterministicVerdict === 'not_equivalent') {
-    if (judgement.verdict !== 'incorrect' && judgement.verdict !== 'unable') {
+    if (judgement.verdict !== 'incorrect') {
       return {
         outcome: null,
         correctnessSource: 'unavailable',
@@ -575,7 +573,7 @@ export async function validateTransferOutcome(input: {
       };
     }
     return {
-      outcome: judgement.verdict === 'unable' ? 'unable_to_begin' : 'attempted_incorrect',
+      outcome: 'attempted_incorrect',
       correctnessSource: 'deterministic',
       confidence: 1,
       semanticValidation: metadata,
