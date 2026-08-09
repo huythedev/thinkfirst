@@ -45,7 +45,7 @@ export interface SemanticValidationResult {
   validation: SemanticValidation | null;
   /** False when no structurally valid verifier result was produced. */
   available: boolean;
-  /** Convenience gate for the three approve/reject validation kinds. */
+  /** True when this validation kind produced a usable, sufficiently confident verdict. */
   approved: boolean;
   modelName: string;
   promptVersion: string;
@@ -53,6 +53,24 @@ export interface SemanticValidationResult {
 
 function toBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64');
+}
+
+function isUsableValidation(
+  kind: SemanticValidationKind,
+  validation: SemanticValidation,
+  minimumConfidence: number,
+): boolean {
+  if (kind !== 'transfer_answer') {
+    return isSemanticApproval(validation, minimumConfidence);
+  }
+
+  return (
+    validation.approved &&
+    validation.confidence >= minimumConfidence &&
+    validation.verdict !== 'approved' &&
+    validation.verdict !== 'rejected' &&
+    validation.verdict !== 'unsupported'
+  );
 }
 
 /**
@@ -122,7 +140,7 @@ export async function runSemanticValidation(input: {
     return {
       validation,
       available: true,
-      approved: isSemanticApproval(validation, minimumConfidence),
+      approved: isUsableValidation(input.validationKind, validation, minimumConfidence),
       modelName: recordedModelName,
       promptVersion: SEMANTIC_VALIDATOR_PROMPT_VERSION,
     };
@@ -177,7 +195,7 @@ export async function runSemanticValidation(input: {
     return {
       validation: parsed.value,
       available: true,
-      approved: isSemanticApproval(parsed.value, minimumConfidence),
+      approved: isUsableValidation(input.validationKind, parsed.value, minimumConfidence),
       modelName: recordedModelName,
       promptVersion: SEMANTIC_VALIDATOR_PROMPT_VERSION,
     };
