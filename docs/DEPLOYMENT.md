@@ -34,9 +34,11 @@ Configured model roles:
 - `GEMINI_TRANSFER_MODEL`
 - `GEMINI_EXTRACTION_MODEL`
 
-All six resolve through one code default to `gemini-3.6-flash` when no explicit override is supplied. `GEMINI_VALIDATOR_MODEL` is load-bearing: it independently verifies tutor semantics, evaluator evidence, transfer problems/answers, and image extraction where those results become trusted application data.
+All six resolve through one code default to `gemini-3.6-flash` when no explicit override is supplied. `GEMINI_VALIDATOR_MODEL` is load-bearing for semantic verification: it independently checks intent/classification before deterministic policy, post-enforcement tutor content, evaluator/scoring evidence, generated transfer problems, student transfer answers, and image extraction where those outputs become trusted application data.
 
-The current code intentionally uses more Gemini calls for correctness. Local deterministic checks remain as schema/security/math guardrails and can replace verified subsets later after their measured accuracy is high enough.
+The verifier may reject output or make a missed safety classification more conservative. It cannot grant authorization, ownership, hint permission, or final-answer disclosure; those remain deterministic server decisions.
+
+The current code intentionally spends more Gemini calls for correctness. Local deterministic checks remain as schema/security/math guardrails and can replace verified subsets later after their measured accuracy is high enough.
 
 ## Required GitHub environment configuration
 
@@ -86,7 +88,7 @@ Run with runtime environment values:
 docker run --rm -p 8080:8080 --env-file .env.local thinkfirst
 ```
 
-Docker does not interactively ask for the Gemini credential. If `GEMINI_API_KEY` is not provided at runtime, live Gemini calls cannot authenticate.
+Docker does not interactively ask for the Gemini credential. Live model-client resolution fails with a named configuration error when `GEMINI_API_KEY` is absent; mock mode is available only outside production.
 
 ## Cloud Run deployment
 
@@ -120,6 +122,8 @@ Review changes to:
 
 before production deployment.
 
+The repository deployment workflow now performs this Firebase deployment in development, staging **and production** before/alongside the Cloud Run release. This matters when environments use separate Firebase projects: shipping application code without matching rules/indexes can leave production on an older security/data contract.
+
 ## CI verification
 
 `.github/workflows/ci.yml` is configured to run on pull requests and on pushes to `main`, with:
@@ -133,7 +137,7 @@ lint
 -> build
 ```
 
-It also runs deterministic prompt evaluation and emulator-backed Playwright smoke tests. Those tests use the mock AI driver and therefore do not prove live Gemini quality.
+It also runs deterministic prompt evaluation and emulator-backed Playwright smoke tests. `playwright.config.ts` sets `AI_MODEL_DRIVER=mock` for the test web server, so those tests do not spend live Gemini quota and do not prove live Gemini quality.
 
 At the time of the 2026-08-09 Gemini-first validation audit, the GitHub connector did not report a CI workflow run for the current draft PR head. Do not label the branch verified until those checks actually execute successfully.
 
