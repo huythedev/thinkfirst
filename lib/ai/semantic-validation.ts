@@ -22,6 +22,17 @@ export type SemanticValidationKind =
   | 'image_extraction'
   | 'transfer_answer';
 
+const SAFETY_CATEGORIES = new Set([
+  'self_harm',
+  'abuse',
+  'sexual_content',
+  'violence',
+  'illegal_activity',
+  'bullying',
+  'personal_data',
+  'other',
+]);
+
 const providerSchema: Schema = {
   type: Type.OBJECT,
   properties: {
@@ -71,6 +82,52 @@ function isUsableValidation(
     validation.verdict !== 'rejected' &&
     validation.verdict !== 'unsupported'
   );
+}
+
+function classifierSafetyCategory(data: unknown): string | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const candidateAnalysis = (data as Record<string, unknown>)['candidateAnalysis'];
+  if (typeof candidateAnalysis !== 'object' || candidateAnalysis === null) return null;
+  const safetyCategory = (candidateAnalysis as Record<string, unknown>)['safetyCategory'];
+  return typeof safetyCategory === 'string' && SAFETY_CATEGORIES.has(safetyCategory)
+    ? safetyCategory
+    : null;
+}
+
+/**
+ * Safety handling is monotonic. Once the primary classifier has produced a
+ * concrete safety category, a second-pass disagreement, malformed verifier
+ * output, or verifier outage may never downgrade that turn to ordinary tutoring.
+ * The verifier may keep that category or replace it with another restrictive
+ * safety category, but absence of a usable correction preserves the first signal.
+ */
+export function preserveIntentSafetySignal(
+  kind: SemanticValidationKind,
+  data: unknown,
+  validation: SemanticValidation | null,
+  issue: string,
+): SemanticValidation | null {
+  if (kind !== 'intent_classification') return validation;
+
+  const candidateSafety = classifierSafetyCategory(data);
+  if (!candidateSafety) return validation;
+
+  if (validation?.approved) return validation;
+
+  const correctedSafety =
+    validation?.correctedValue && SAFETY_CATEGORIES.has(validation.correctedValue)
+      ? validation.correctedValue
+      : candidateSafety;
+
+  return {
+    approved: false,
+    verdict: 'rejected',
+    confidence: validation?.confidence ?? 0,
+    issues: validation
+      ? Array.from(new Set([...validation.issues, issue]))
+      : [issue],
+    correctedValue: correctedSafety,
+  };
 }
 
 /**
@@ -180,8 +237,14 @@ export async function runSemanticValidation(input: {
     const parsed = parseSemanticValidation(response.text);
     if (!parsed.ok) {
       console.warn('Semantic validator output rejected by server-side validation:', parsed.detail);
+      const safetyFallback = preserveIntentSafetySignal(
+        input.validationKind,
+        input.data,
+        null,
+        'Semantic verifier output was malformed; preserving the primary classifier safety signal.',
+      );
       return {
-        validation: null,
+        validation: safetyFallback,
         available: false,
         approved: false,
         modelName: recordedModelName,
@@ -189,10 +252,19 @@ export async function runSemanticValidation(input: {
       };
     }
 
+    const validation = preserveIntentSafetySignal(
+      input.validationKind,
+      input.data,
+      parsed.value,
+      'Semantic verifier did not approve the classification; preserving the primary classifier safety signal.',
+    );
+
     return {
-      validation: parsed.value,
+      validation,
       available: true,
-      approved: isUsableValidation(input.validationKind, parsed.value, minimumConfidence),
+      approved:
+        validation !== null &&
+        isUsableValidation(input.validationKind, validation, minimumConfidence),
       modelName: recordedModelName,
       promptVersion: SEMANTIC_VALIDATOR_PROMPT_VERSION,
     };
@@ -201,8 +273,14 @@ export async function runSemanticValidation(input: {
       'Semantic validator call failed:',
       error instanceof Error ? error.message : 'unknown error',
     );
+    const safetyFallback = preserveIntentSafetySignal(
+      input.validationKind,
+      input.data,
+      null,
+      'Semantic verifier was unavailable; preserving the primary classifier safety signal.',
+    );
     return {
-      validation: null,
+      validation: safetyFallback,
       available: false,
       approved: false,
       modelName: recordedModelName,
