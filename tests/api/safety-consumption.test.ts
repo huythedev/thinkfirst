@@ -2,13 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Route-level trust-boundary tests. Student turns are server-authored by the chat
- * endpoint, so the transcript mock contains only history that existed before the
- * current request. The route must persist the current student message itself.
+ * endpoint, so the transcript mock contains only trusted history. The route must
+ * serialize per-session work and must not duplicate an orphaned student turn when
+ * a failed model call is retried.
  */
 
 const verifyRequest = vi.fn();
 const resolvePolicyInputs = vi.fn();
 const loadTranscript = vi.fn();
+const acquireSessionRequestLock = vi.fn();
+const releaseSessionRequestLock = vi.fn();
 const reserveTurnSequences = vi.fn();
 const generateContent = vi.fn();
 const checkRateLimit = vi.fn();
@@ -40,6 +43,7 @@ vi.mock('@/lib/firebase/admin', () => {
   const collection = (name: string): any => ({
     doc: (id?: string) => ({
       id: id ?? 'generated-turn-id',
+      __collection: name,
       set: (data: unknown) => {
         turnSet(name, data);
         return Promise.resolve();
@@ -59,8 +63,12 @@ vi.mock('@/lib/firebase/admin', () => {
     adminDb: {
       collection,
       batch: () => ({
-        set: vi.fn(),
-        update: vi.fn(),
+        set: (ref: { __collection?: string }, data: unknown) => {
+          turnSet(ref.__collection ?? 'unknown', data);
+        },
+        update: (ref: { __collection?: string }, data: unknown) => {
+          sessionUpdate(ref.__collection ?? 'unknown', data);
+        },
         commit: () => Promise.resolve(),
       }),
     },
@@ -75,6 +83,11 @@ vi.mock('firebase-admin/firestore', () => ({
 vi.mock('@/lib/session/policy-inputs', () => ({
   resolvePolicyInputs: (...args: unknown[]) => resolvePolicyInputs(...args),
   loadTranscript: (...args: unknown[]) => loadTranscript(...args),
+}));
+
+vi.mock('@/lib/session/request-lock', () => ({
+  acquireSessionRequestLock: (...args: unknown[]) => acquireSessionRequestLock(...args),
+  releaseSessionRequestLock: (...args: unknown[]) => releaseSessionRequestLock(...args),
 }));
 
 vi.mock('@/lib/session/turn-sequence', () => ({
@@ -103,9 +116,7 @@ vi.mock('@/lib/session/evaluation', () => ({
     recordLearningEvidenceProbe('evaluateAttempt', ...args);
     return Promise.resolve({
       available: false,
-      evaluation: {
-        extractedAnswer: null,
-      },
+      evaluation: { extractedAnswer: null },
       modelName: 'stub',
       semanticValidation: null,
     });
@@ -216,6 +227,8 @@ beforeEach(() => {
     unavailable: false,
   });
   resolvePolicyInputs.mockResolvedValue({ status: 'ok', inputs: POLICY });
+  acquireSessionRequestLock.mockResolvedValue({ sessionId: 's1', token: 'lock-1' });
+  releaseSessionRequestLock.mockResolvedValue(undefined);
   loadTranscript.mockResolvedValue([
     { actor: 'student', content: 'Earlier attempt', sequence: 1 },
     {
@@ -234,9 +247,7 @@ beforeEach(() => {
   ]);
   reserveTurnSequences.mockImplementation(
     (_sessionId: string, minimumNextSequence: number, count: number) =>
-      Promise.resolve(
-        Array.from({ length: count }, (_, index) => minimumNextSequence + index),
-      ),
+      Promise.resolve(Array.from({ length: count }, (_, index) => minimumNextSequence + index)),
   );
   runSemanticValidation.mockResolvedValue(semanticApproval);
 });
@@ -253,15 +264,34 @@ describe('the endpoint consumes and verifies the safety classification', () => {
     expect(runSemanticValidation.mock.calls[0][0].validationKind).toBe('intent_classification');
   });
 
-  it('reserves ordered server sequence numbers and persists the student turn', async () => {
+  it('serializes work per session and releases the lease after the response', async () => {
+    classifierReturns('self_harm');
+
+    await POST(request({ message: 'I want to hurt myself', sessionId: 's1' }) as never);
+
+    expect(acquireSessionRequestLock).toHaveBeenCalledWith('s1');
+    expect(releaseSessionRequestLock).toHaveBeenCalledWith({ sessionId: 's1', token: 'lock-1' });
+  });
+
+  it('returns 409 without model work when another request owns the session lease', async () => {
+    acquireSessionRequestLock.mockResolvedValue(null);
+
+    const response = await POST(request({ message: 'parallel request', sessionId: 's1' }) as never);
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get('Retry-After')).toBe('1');
+    expect(generateContent).not.toHaveBeenCalled();
+    expect(reserveTurnSequences).not.toHaveBeenCalled();
+  });
+
+  it('reserves ordered server sequence numbers and persists a fresh student turn', async () => {
     classifierReturns('self_harm');
 
     await POST(request({ message: 'I want to hurt myself', sessionId: 's1' }) as never);
 
     expect(reserveTurnSequences).toHaveBeenCalledWith('s1', 3, 2);
     const studentWrite = turnSet.mock.calls.find(
-      ([name, data]) =>
-        name === 'sessionTurns' && (data as Record<string, unknown>).actor === 'student',
+      ([name, data]) => name === 'sessionTurns' && (data as Record<string, unknown>).actor === 'student',
     );
     expect(studentWrite).toBeDefined();
     expect(studentWrite![1]).toMatchObject({
@@ -269,6 +299,24 @@ describe('the endpoint consumes and verifies the safety classification', () => {
       sequence: 3,
       serverAuthored: true,
     });
+  });
+
+  it('reuses an orphaned trusted student turn when the same failed message is retried', async () => {
+    const message = 'retry-this-message';
+    loadTranscript.mockResolvedValue([
+      { actor: 'assistant', content: 'Previous tutor turn', sequence: 1 },
+      { actor: 'student', content: message, sequence: 2 },
+    ]);
+    classifierReturns('self_harm');
+
+    const response = await POST(request({ message, sessionId: 's1' }) as never);
+
+    expect(response.status).toBe(200);
+    expect(reserveTurnSequences).toHaveBeenCalledWith('s1', 3, 1);
+    const studentWrites = turnSet.mock.calls.filter(
+      ([name, data]) => name === 'sessionTurns' && (data as Record<string, unknown>).actor === 'student',
+    );
+    expect(studentWrites).toHaveLength(0);
   });
 
   it('returns the deterministic safety message with support guidance', async () => {
@@ -325,8 +373,7 @@ describe('the endpoint consumes and verifies the safety classification', () => {
     await POST(request({ message: 'I want to hurt myself', sessionId: 's1' }) as never);
 
     const assistantWrite = turnSet.mock.calls.find(
-      ([name, data]) =>
-        name === 'sessionTurns' && (data as Record<string, unknown>).actor === 'assistant',
+      ([name, data]) => name === 'sessionTurns' && (data as Record<string, unknown>).actor === 'assistant',
     );
     expect(assistantWrite).toBeDefined();
     const turn = assistantWrite![1] as Record<string, any>;
@@ -410,15 +457,9 @@ describe('the endpoint consumes and verifies the safety classification', () => {
     expect(runSemanticValidation.mock.calls[1][0].validationKind).toBe('tutor_response');
     expect(body.tutorData.responseType).not.toBe('safety_message');
     expect(body.safety).toBeUndefined();
-    expect(recordLearningEvidenceProbe).toHaveBeenCalledWith(
-      'persistSessionEvidence',
-      'student-1',
-      's1',
-    );
+    expect(recordLearningEvidenceProbe).toHaveBeenCalledWith('persistSessionEvidence', 'student-1', 's1');
 
-    const evaluatorCall = recordLearningEvidenceProbe.mock.calls.find(
-      ([kind]) => kind === 'evaluateAttempt',
-    );
+    const evaluatorCall = recordLearningEvidenceProbe.mock.calls.find(([kind]) => kind === 'evaluateAttempt');
     expect(evaluatorCall?.[1]).toMatchObject({ learningObjective: 'delivered-objective' });
   });
 });
