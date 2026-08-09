@@ -244,6 +244,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // sessionTurnCounters
+    //
+    // Sequence allocation is a server-side transaction. If a browser could seed,
+    // rewind or inspect this counter, concurrent requests could create ambiguous
+    // ordering or deliberately push the transcript cursor. No client has a reason
+    // to access it; Admin SDK callers bypass these rules.
+    match /sessionTurnCounters/{sessionId} {
+      allow read, write: if false;
+    }
+
     // studentAttempts
     //
     // Reads are owner-scoped. Writes are refused outright, including the student's
@@ -304,8 +314,8 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Privileged action trail. Written by trusted server code through the Admin
-    // SDK, which bypasses these rules.
+    // Privileged action trail. Written by trusted server code only. Phase 6 made this
+    // collection live rather than dead, so the write denial now matters.
     match /auditLogs/{logId} {
       allow read, write: if false;
     }
