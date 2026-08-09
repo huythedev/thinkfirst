@@ -33,6 +33,7 @@ import {
   generateTransferProblem,
   recordAttemptEvaluation,
   validateTransferOutcome,
+  type AttemptType,
 } from '@/lib/session/evaluation';
 import { persistSessionEvidence } from '@/lib/scoring/server';
 import { composeSafetyResponse } from '@/lib/safety/response';
@@ -49,37 +50,37 @@ const TUTOR_PROMPT_VERSION = 'tutor-system-v1';
 const intentSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    intent: { type: Type.STRING, enum: ["concept_explanation", "problem_solving", "step_check", "answer_request", "homework_completion", "verification", "off_topic", "unsafe", "unclear"] },
-    subject: { type: Type.STRING, enum: ["mathematics", "science", "other"] },
+    intent: { type: Type.STRING, enum: ['concept_explanation', 'problem_solving', 'step_check', 'answer_request', 'homework_completion', 'verification', 'off_topic', 'unsafe', 'unclear'] },
+    subject: { type: Type.STRING, enum: ['mathematics', 'science', 'other'] },
     topic: { type: Type.STRING, nullable: true },
     estimatedGradeLevel: { type: Type.INTEGER, nullable: true },
     problemStatement: { type: Type.STRING, nullable: true },
     studentProvidedAttempt: { type: Type.BOOLEAN },
-    attemptQuality: { type: Type.STRING, enum: ["none", "minimal", "partial", "meaningful"] },
+    attemptQuality: { type: Type.STRING, enum: ['none', 'minimal', 'partial', 'meaningful'] },
     answerSeekingLikelihood: { type: Type.NUMBER },
-    ambiguityLevel: { type: Type.STRING, enum: ["low", "medium", "high"] },
+    ambiguityLevel: { type: Type.STRING, enum: ['low', 'medium', 'high'] },
     missingInformation: { type: Type.ARRAY, items: { type: Type.STRING } },
-    detectedLanguage: { type: Type.STRING, enum: ["vi", "en", "other"] },
-    safetyCategory: { type: Type.STRING, enum: ["none", "self_harm", "abuse", "sexual_content", "violence", "illegal_activity", "bullying", "personal_data", "other"] },
-    confidence: { type: Type.NUMBER }
+    detectedLanguage: { type: Type.STRING, enum: ['vi', 'en', 'other'] },
+    safetyCategory: { type: Type.STRING, enum: ['none', 'self_harm', 'abuse', 'sexual_content', 'violence', 'illegal_activity', 'bullying', 'personal_data', 'other'] },
+    confidence: { type: Type.NUMBER },
   },
-  required: ["intent", "subject", "studentProvidedAttempt", "attemptQuality", "answerSeekingLikelihood", "ambiguityLevel", "missingInformation", "detectedLanguage", "safetyCategory", "confidence"]
+  required: ['intent', 'subject', 'studentProvidedAttempt', 'attemptQuality', 'answerSeekingLikelihood', 'ambiguityLevel', 'missingInformation', 'detectedLanguage', 'safetyCategory', 'confidence'],
 };
 
 const tutorSchema: Schema = {
   type: Type.OBJECT,
   properties: {
     messageMarkdown: { type: Type.STRING },
-    responseType: { type: Type.STRING, enum: ["question", "hint", "feedback", "explanation", "worked_step", "solution", "transfer_problem", "safety_message"] },
+    responseType: { type: Type.STRING, enum: ['question', 'hint', 'feedback', 'explanation', 'worked_step', 'solution', 'transfer_problem', 'safety_message'] },
     hintLevel: { type: Type.INTEGER },
     finalAnswerIncluded: { type: Type.BOOLEAN },
     studentActionRequired: { type: Type.STRING, nullable: true },
     checkForUnderstanding: { type: Type.STRING, nullable: true },
     confidenceStatement: { type: Type.STRING, nullable: true },
     learningObjective: { type: Type.STRING, nullable: true },
-    internalConceptTags: { type: Type.ARRAY, items: { type: Type.STRING } }
+    internalConceptTags: { type: Type.ARRAY, items: { type: Type.STRING } },
   },
-  required: ["messageMarkdown", "responseType", "hintLevel", "finalAnswerIncluded", "internalConceptTags"]
+  required: ['messageMarkdown', 'responseType', 'hintLevel', 'finalAnswerIncluded', 'internalConceptTags'],
 };
 
 const SAFETY_CATEGORIES = new Set<Exclude<IntentAnalysis['safetyCategory'], 'none'>>([
@@ -110,6 +111,107 @@ function semanticMetadata(result: Awaited<ReturnType<typeof runSemanticValidatio
     promptVersion: result.promptVersion,
     confidence: result.validation?.confidence ?? 0,
   };
+}
+
+function nextTranscriptSequence(turns: TranscriptTurn[]): number {
+  return turns.reduce((max, turn) => Math.max(max, turn.sequence), 0) + 1;
+}
+
+/**
+ * The browser normally persists the student turn before calling this endpoint.
+ * The route used to load that turn and then append the request message again,
+ * making classifier/evaluator context contain the current message twice.
+ *
+ * Strip that last matching persisted turn from *history* while retaining it in
+ * the complete transcript for sequence accounting. If a direct API client did
+ * not persist the turn, the server records it under the authenticated uid so the
+ * transcript and scoring evidence cannot silently omit the message being judged.
+ */
+async function normalizeTranscriptForRequest(input: {
+  sessionId: string;
+  studentId: string;
+  message: string;
+  transcript: TranscriptTurn[];
+}): Promise<{
+  priorTranscript: TranscriptTurn[];
+  completeTranscript: TranscriptTurn[];
+  currentStudentSequence: number;
+}> {
+  const last = input.transcript.at(-1);
+  if (last?.actor === 'student' && last.content === input.message) {
+    return {
+      priorTranscript: input.transcript.slice(0, -1),
+      completeTranscript: input.transcript,
+      currentStudentSequence: last.sequence,
+    };
+  }
+
+  const sequence = nextTranscriptSequence(input.transcript);
+  const ref = adminDb.collection('sessionTurns').doc();
+  await ref.set({
+    id: ref.id,
+    sessionId: input.sessionId,
+    studentId: input.studentId,
+    sequence,
+    actor: 'student',
+    content: input.message,
+    createdAt: FieldValue.serverTimestamp(),
+    serverRecoveredMissingClientTurn: true,
+  });
+
+  const currentTurn: TranscriptTurn = {
+    actor: 'student',
+    content: input.message,
+    sequence,
+  };
+  return {
+    priorTranscript: input.transcript,
+    completeTranscript: [...input.transcript, currentTurn],
+    currentStudentSequence: sequence,
+  };
+}
+
+/** Evidence type belongs to the task already delivered before this message. */
+function deliveredAttemptType(priorTranscript: TranscriptTurn[]): AttemptType {
+  const previousAssistant = [...priorTranscript]
+    .reverse()
+    .find((turn) => turn.actor === 'assistant');
+
+  if (previousAssistant?.tutorMetadata?.responseType === 'transfer_problem') {
+    return 'transfer';
+  }
+  if (
+    previousAssistant?.responsePlan?.requiresVerification === true ||
+    previousAssistant?.responsePlan?.action === 'start_verification_task'
+  ) {
+    return 'verification';
+  }
+  if (previousAssistant?.responsePlan?.requiresExplanation === true) {
+    return 'explanation';
+  }
+
+  const previousStudentTurns = priorTranscript.filter((turn) => turn.actor === 'student').length;
+  return previousStudentTurns === 0 ? 'initial' : 'intermediate';
+}
+
+function deliveredTransferHintDelta(
+  priorTranscript: TranscriptTurn[],
+  input: { issuedSequence: number; hintLevelAtIssue: number },
+): number {
+  const deliveredLevels = priorTranscript
+    .filter(
+      (turn) =>
+        turn.actor === 'assistant' &&
+        turn.sequence > input.issuedSequence &&
+        typeof turn.responsePlan?.allowedHintLevel === 'number',
+    )
+    .map((turn) => turn.responsePlan!.allowedHintLevel as number);
+
+  const highestDelivered =
+    deliveredLevels.length > 0
+      ? Math.max(input.hintLevelAtIssue, ...deliveredLevels)
+      : input.hintLevelAtIssue;
+  return Math.max(0, highestDelivered - input.hintLevelAtIssue);
 }
 
 export async function POST(req: NextRequest) {
@@ -159,8 +261,16 @@ export async function POST(req: NextRequest) {
     }
 
     const policy = resolution.inputs;
-    const transcript = await loadTranscript(sessionId);
-    const conversationHistory = transcript
+    const loadedTranscript = await loadTranscript(sessionId);
+    const normalized = await normalizeTranscriptForRequest({
+      sessionId,
+      studentId: auth.uid,
+      message,
+      transcript: loadedTranscript,
+    });
+    const { priorTranscript, completeTranscript } = normalized;
+
+    const conversationHistory = priorTranscript
       .map((turn) => `${turn.actor === 'student' ? 'Student' : 'Tutor'}: ${turn.content}`)
       .join('\n');
 
@@ -188,11 +298,6 @@ export async function POST(req: NextRequest) {
       console.warn('Classifier output rejected by server-side validation:', intentParse.detail);
     }
 
-    // Classification is itself a semantic policy input, so it gets an independent
-    // Gemini verification pass. The verifier cannot grant disclosure permission;
-    // it can only approve the classification or, for a missed safety signal,
-    // return one corrected safety-category token. All other disagreement falls
-    // back to the most restrictive ordinary classification.
     const classifierValidation = await runSemanticValidation({
       validationKind: 'intent_classification',
       data: {
@@ -241,6 +346,8 @@ export async function POST(req: NextRequest) {
       extractionConfidence: policy.extractionConfirmed ? undefined : policy.extractionConfidence,
     });
 
+    const assistantSequence = nextTranscriptSequence(completeTranscript);
+
     if (responsePlan.action === 'safety_redirect' && intentData.safetyCategory !== 'none') {
       return await handleSafetyTurn({
         sessionId,
@@ -250,7 +357,7 @@ export async function POST(req: NextRequest) {
         confidence: intentData.confidence,
         intentData,
         responsePlan,
-        sequence: transcript.length + 1,
+        sequence: assistantSequence,
         classifierModel: modelNameFor(classifierModel),
         classifierValidation: semanticMetadata(classifierValidation),
         latencyMs: Date.now() - startedAt,
@@ -338,7 +445,6 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
 
     const persistedHintLevel = nextHintLevel(policy.currentHintLevel, responsePlan.allowedHintLevel);
     const latencyMs = Date.now() - startedAt;
-    const nextSequence = transcript.length + 1;
     const turnRef = adminDb.collection('sessionTurns').doc();
 
     await Promise.all([
@@ -346,7 +452,7 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
         id: turnRef.id,
         sessionId,
         studentId: auth.uid,
-        sequence: nextSequence,
+        sequence: assistantSequence,
         actor: 'assistant',
         content: tutorData.messageMarkdown,
         createdAt: FieldValue.serverTimestamp(),
@@ -356,6 +462,7 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
           hintLevel: tutorData.hintLevel,
           finalAnswerIncluded: tutorData.finalAnswerIncluded,
           responseType: tutorData.responseType,
+          studentActionRequired: tutorData.studentActionRequired ?? null,
           modelName: modelNameFor(tutorModel),
           classifierModel: modelNameFor(classifierModel),
           promptVersion: TUTOR_PROMPT_VERSION,
@@ -392,8 +499,8 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
       policy,
       responsePlan,
       tutorData,
-      transcriptTurns: transcript,
-      assistantSequence: nextSequence,
+      priorTranscript,
+      assistantSequence,
     });
 
     return NextResponse.json({
@@ -490,6 +597,7 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
       hintLevel: 0,
       finalAnswerIncluded: false,
       responseType: 'safety_message',
+      studentActionRequired: null,
       modelName: 'none:deterministic-safety-response',
       promptVersion: 'safety-response-v1',
       classifierPromptVersion: CLASSIFIER_PROMPT_VERSION,
@@ -564,7 +672,7 @@ interface EvidenceInput {
   policy: ResolvedPolicyInputs;
   responsePlan: TutorResponsePlan;
   tutorData: TutorResponse;
-  transcriptTurns: TranscriptTurn[];
+  priorTranscript: TranscriptTurn[];
   assistantSequence: number;
 }
 
@@ -577,9 +685,9 @@ interface EvidenceSummary {
 }
 
 /**
- * Evaluate only the student evidence that existed before the current tutor reply,
- * then independently verify the evaluator output. This prevents the tutor from
- * leaking its own correction into the judgement of the student's preceding work.
+ * Judge this student message against the task that was actually delivered on the
+ * previous assistant turn. The *new* response plan describes what the tutor is
+ * about to ask next and must never retroactively relabel the student's message.
  */
 async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSummary> {
   const summary: EvidenceSummary = {
@@ -592,7 +700,6 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
 
   try {
     const transcript = input.conversationHistory + `\nStudent: ${input.message}`;
-
     const evaluation = await evaluateAttempt({
       problem: input.policy.originalProblem,
       learningObjective: input.responsePlan.learningObjective,
@@ -600,38 +707,19 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
       studentMessage: input.message,
       grade: input.policy.grade,
     });
-
-    const attemptType =
-      input.responsePlan.action === 'start_verification_task' ||
-      input.responsePlan.requiresVerification
-        ? 'verification'
-        : input.responsePlan.requiresExplanation
-          ? 'explanation'
-          : input.transcriptTurns.length <= 1
-            ? 'initial'
-            : 'intermediate';
-
-    await recordAttemptEvaluation({
-      sessionId: input.sessionId,
-      studentId: input.studentId,
-      attemptText: input.message,
-      attemptType,
-      evaluation: evaluation.evaluation,
-      available: evaluation.available,
-      modelName: evaluation.modelName,
-      semanticValidation: evaluation.semanticValidation,
-    });
     summary.attemptEvaluated = evaluation.available;
 
     const pendingTransfer = await loadPendingTransfer(input.sessionId);
-    if (pendingTransfer) {
-      const studentAnswer = evaluation.evaluation.extractedAnswer ?? input.message;
+    const extractedAnswer = evaluation.evaluation.extractedAnswer?.trim() || null;
+    const deliveredType = deliveredAttemptType(input.priorTranscript);
+
+    if (pendingTransfer && extractedAnswer) {
       const outcome = await validateTransferOutcome({
         problemMarkdown: pendingTransfer.problemMarkdown,
-        studentAnswer,
+        studentAnswer: extractedAnswer,
         referenceAnswer: pendingTransfer.internalAnswer,
         evaluatorCorrectness: evaluation.available ? evaluation.evaluation.correctness : null,
-        hintDelta: Math.max(0, input.responsePlan.allowedHintLevel - pendingTransfer.hintLevelAtIssue),
+        hintDelta: deliveredTransferHintDelta(input.priorTranscript, pendingTransfer),
       });
 
       await recordAttemptEvaluation({
@@ -648,7 +736,7 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
           correctnessSource: outcome.correctnessSource,
           confidence: outcome.confidence,
           referenceAnswer: pendingTransfer.internalAnswer,
-          studentAnswer,
+          studentAnswer: extractedAnswer,
           semanticValidation: outcome.semanticValidation,
         },
       });
@@ -658,9 +746,28 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
         evaluatedAt: FieldValue.serverTimestamp(),
         answerSemanticValidation: outcome.semanticValidation,
       });
+    } else {
+      // A hint request while a transfer is pending is not itself a transfer
+      // answer. Keep the transfer pending and record the message as ordinary
+      // intermediate evidence; a later extracted answer will close the task.
+      const attemptType: AttemptType =
+        pendingTransfer && deliveredType === 'transfer' ? 'intermediate' : deliveredType;
+      await recordAttemptEvaluation({
+        sessionId: input.sessionId,
+        studentId: input.studentId,
+        attemptText: input.message,
+        attemptType,
+        evaluation: evaluation.evaluation,
+        available: evaluation.available,
+        modelName: evaluation.modelName,
+        semanticValidation: evaluation.semanticValidation,
+      });
     }
 
-    if (input.responsePlan.generateTransferProblem) {
+    // Do not issue a second transfer while one is already pending. A new transfer
+    // is a real student obligation only after the exact validated public problem
+    // and hidden reference are atomically persisted together.
+    if (input.responsePlan.generateTransferProblem && !pendingTransfer) {
       const generated = await generateTransferProblem({
         problem: input.policy.originalProblem,
         topic: input.responsePlan.learningObjective,
@@ -672,47 +779,49 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
         const ref = adminDb.collection('transferProblems').doc();
         const transferTurnRef = adminDb.collection('sessionTurns').doc();
         const transferSequence = input.assistantSequence + 1;
+        const batch = adminDb.batch();
 
-        await Promise.all([
-          ref.set({
-            id: ref.id,
-            sessionId: input.sessionId,
-            studentId: input.studentId,
-            problemMarkdown: generated.problem.problemMarkdown,
-            topic: generated.problem.topic,
-            difficulty: generated.problem.difficulty,
-            expectedConcepts: generated.problem.expectedConcepts,
-            internalAnswer: generated.problem.internalAnswer,
-            internalSolutionSteps: generated.problem.internalSolutionSteps,
-            validationNotes: generated.problem.validationNotes,
-            secondPassValidated: true,
-            semanticValidation: generated.validation,
-            hintLevelAtIssue: input.responsePlan.allowedHintLevel,
-            status: 'issued',
+        batch.set(ref, {
+          id: ref.id,
+          sessionId: input.sessionId,
+          studentId: input.studentId,
+          problemMarkdown: generated.problem.problemMarkdown,
+          topic: generated.problem.topic,
+          difficulty: generated.problem.difficulty,
+          expectedConcepts: generated.problem.expectedConcepts,
+          internalAnswer: generated.problem.internalAnswer,
+          internalSolutionSteps: generated.problem.internalSolutionSteps,
+          validationNotes: generated.problem.validationNotes,
+          secondPassValidated: true,
+          semanticValidation: generated.validation,
+          hintLevelAtIssue: input.responsePlan.allowedHintLevel,
+          issuedSequence: transferSequence,
+          status: 'issued',
+          modelName: generated.modelName,
+          promptVersion: TRANSFER_PROMPT_VERSION,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        batch.set(transferTurnRef, {
+          id: transferTurnRef.id,
+          sessionId: input.sessionId,
+          studentId: input.studentId,
+          sequence: transferSequence,
+          actor: 'assistant',
+          content: generated.problem.problemMarkdown,
+          createdAt: FieldValue.serverTimestamp(),
+          tutorMetadata: {
+            hintLevel: input.responsePlan.allowedHintLevel,
+            finalAnswerIncluded: false,
+            responseType: 'transfer_problem',
+            studentActionRequired: 'Solve this transfer problem independently.',
             modelName: generated.modelName,
             promptVersion: TRANSFER_PROMPT_VERSION,
-            createdAt: FieldValue.serverTimestamp(),
-          }),
-          transferTurnRef.set({
-            id: transferTurnRef.id,
-            sessionId: input.sessionId,
-            studentId: input.studentId,
-            sequence: transferSequence,
-            actor: 'assistant',
-            content: generated.problem.problemMarkdown,
-            createdAt: FieldValue.serverTimestamp(),
-            tutorMetadata: {
-              hintLevel: input.responsePlan.allowedHintLevel,
-              finalAnswerIncluded: false,
-              responseType: 'transfer_problem',
-              modelName: generated.modelName,
-              promptVersion: TRANSFER_PROMPT_VERSION,
-              transferProblemId: ref.id,
-              modelOutputRevalidated: true,
-              semanticValidation: generated.validation,
-            },
-          }),
-        ]);
+            transferProblemId: ref.id,
+            modelOutputRevalidated: true,
+            semanticValidation: generated.validation,
+          },
+        });
+        await batch.commit();
         summary.transferIssued = true;
       } else {
         await markSessionSystemError(input.sessionId).catch(() => undefined);
@@ -748,6 +857,7 @@ async function loadPendingTransfer(sessionId: string): Promise<
       problemMarkdown: string;
       internalAnswer: string;
       hintLevelAtIssue: number;
+      issuedSequence: number;
     }
   | null
 > {
@@ -768,10 +878,17 @@ async function loadPendingTransfer(sessionId: string): Promise<
         internalAnswer: typeof data.internalAnswer === 'string' ? data.internalAnswer : '',
         hintLevelAtIssue:
           typeof data.hintLevelAtIssue === 'number' ? data.hintLevelAtIssue : 0,
+        issuedSequence:
+          typeof data.issuedSequence === 'number' ? data.issuedSequence : 0,
         createdAt: data.createdAt?.toDate?.()?.getTime?.() ?? 0,
       };
     })
-    .filter((entry) => entry.internalAnswer.length > 0 && entry.problemMarkdown.length > 0)
+    .filter(
+      (entry) =>
+        entry.internalAnswer.length > 0 &&
+        entry.problemMarkdown.length > 0 &&
+        entry.issuedSequence > 0,
+    )
     .sort((left, right) => right.createdAt - left.createdAt);
 
   return documents[0] ?? null;
