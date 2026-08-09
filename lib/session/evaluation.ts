@@ -17,6 +17,14 @@ import {
   TRANSFER_PROMPT_V1,
   TRANSFER_PROMPT_VERSION,
 } from '@/services/ai-gateway/src/prompts/transfer.v1';
+import {
+  VALIDATOR_PROMPT_V1,
+  VALIDATOR_PROMPT_VERSION,
+} from '@/services/ai-gateway/src/prompts/validator.v1';
+import {
+  isTransferValidationApproved,
+  parseTransferValidation,
+} from '@/lib/types/ai/transfer-validation';
 import { validateAnswer } from '@/lib/math/validation';
 import { TransferOutcome } from '@/lib/types/scoring';
 
@@ -126,6 +134,32 @@ const transferSchema: Schema = {
   required: ['problemMarkdown', 'difficulty', 'internalAnswer'],
 };
 
+const transferValidatorSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    valid: { type: Type.BOOLEAN },
+    answerCorrect: { type: Type.BOOLEAN },
+    stepsConsistent: { type: Type.BOOLEAN },
+    problemUnambiguous: { type: Type.BOOLEAN },
+    unitsCorrect: { type: Type.BOOLEAN },
+    sameConcept: { type: Type.BOOLEAN },
+    correctedAnswer: { type: Type.STRING, nullable: true },
+    confidence: { type: Type.NUMBER },
+    issues: { type: Type.ARRAY, items: { type: Type.STRING } },
+  },
+  required: [
+    'valid',
+    'answerCorrect',
+    'stepsConsistent',
+    'problemUnambiguous',
+    'unitsCorrect',
+    'sameConcept',
+    'correctedAnswer',
+    'confidence',
+    'issues',
+  ],
+};
+
 export type AttemptType = 'initial' | 'intermediate' | 'explanation' | 'transfer' | 'verification';
 
 export interface EvaluationContext {
@@ -149,7 +183,7 @@ export interface EvaluationContext {
 export async function evaluateAttempt(
   context: EvaluationContext,
 ): Promise<{ evaluation: AttemptEvaluation; available: boolean; modelName: string }> {
-  const modelName = process.env.GEMINI_EVALUATOR_MODEL || 'gemini-3.5-flash';
+  const modelName = process.env.GEMINI_EVALUATOR_MODEL || 'gemini-3.6-flash';
 
   const prompt =
     `Problem: ${context.problem}\n` +
@@ -188,9 +222,15 @@ export async function evaluateAttempt(
 }
 
 /**
- * Generates a transfer problem, then runs the second validation pass section 22
- * requires: the model's own `internalAnswer` is checked against its own worked
- * steps where that is deterministically possible.
+ * Generates a transfer problem and validates it independently before it can be
+ * issued. The cheap deterministic final-step check is retained as a signal, but
+ * it is not sufficient: self-consistency between a generator's last step and its
+ * own answer does not prove that the natural-language problem actually has that
+ * answer. Gemini validator approval is therefore the load-bearing second pass.
+ *
+ * Fail closed: malformed validator output, a rejected problem, or confidence
+ * below the approval threshold returns null. The caller already treats a missing
+ * transfer as missing evidence rather than failing the student's tutoring turn.
  */
 export async function generateTransferProblem(context: {
   problem: string;
@@ -198,7 +238,8 @@ export async function generateTransferProblem(context: {
   grade: number;
   conceptTags: string[];
 }): Promise<{ problem: TransferProblem; validated: boolean; modelName: string } | null> {
-  const modelName = process.env.GEMINI_TRANSFER_MODEL || 'gemini-2.5-pro';
+  const modelName = process.env.GEMINI_TRANSFER_MODEL || 'gemini-3.6-flash';
+  const validatorModel = process.env.GEMINI_VALIDATOR_MODEL || 'gemini-3.6-flash';
 
   const prompt =
     `Completed problem: ${context.problem}\n` +
@@ -223,19 +264,75 @@ export async function generateTransferProblem(context: {
       return null;
     }
 
-    // Section 22's second pass. A reference answer that the last worked step
-    // contradicts is not usable as a deterministic checker, so it is recorded as
-    // unvalidated rather than trusted.
     const lastStep = parsed.value.internalSolutionSteps.at(-1);
-    const validated =
+    const deterministicVerdict =
       lastStep === undefined
-        ? false
-        : validateAnswer(lastStep, parsed.value.internalAnswer).verdict !== 'not_equivalent';
+        ? 'unsupported'
+        : validateAnswer(lastStep, parsed.value.internalAnswer).verdict;
 
-    return { problem: parsed.value, validated, modelName };
+    const validatorInput = {
+      intendedContext: {
+        completedProblem: context.problem,
+        topic: context.topic,
+        grade: context.grade,
+        conceptTags: context.conceptTags,
+      },
+      generatedTransfer: parsed.value,
+      deterministicFinalStepCheck: deterministicVerdict,
+    };
+
+    const validationResponse = await getModelClient().models.generateContent({
+      model: validatorModel,
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text:
+                VALIDATOR_PROMPT_V1 +
+                '\n\nInput to validate:\n' +
+                JSON.stringify(validatorInput),
+            },
+          ],
+        },
+      ],
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: transferValidatorSchema,
+      },
+    });
+
+    const validation = parseTransferValidation(validationResponse.text);
+    if (!validation.ok) {
+      console.warn('Transfer validator output rejected by server-side validation:', validation.detail);
+      return null;
+    }
+
+    if (!isTransferValidationApproved(validation.value)) {
+      console.warn(
+        'Transfer problem rejected by independent validator:',
+        validation.value.issues.join('; ') || 'validator did not approve',
+      );
+      return null;
+    }
+
+    // validationNotes are internal and never shown to the student. Recording the
+    // validating model/version here preserves provenance without widening the
+    // route or exposing the hidden reference answer.
+    const problem: TransferProblem = {
+      ...parsed.value,
+      validationNotes: [
+        ...parsed.value.validationNotes,
+        `Independent validation: ${VALIDATOR_PROMPT_VERSION}; model=${validatorModel}; ` +
+          `confidence=${validation.value.confidence.toFixed(2)}; ` +
+          `deterministicFinalStep=${deterministicVerdict}`,
+      ],
+    };
+
+    return { problem, validated: true, modelName };
   } catch (error) {
     console.warn(
-      'Transfer generation failed:',
+      'Transfer generation or validation failed:',
       error instanceof Error ? error.message : 'unknown error',
     );
     return null;
