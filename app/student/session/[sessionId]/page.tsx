@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { db } from '@/lib/firebase/config';
-import { doc, onSnapshot, collection, query, where, orderBy, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, orderBy, updateDoc } from 'firebase/firestore';
 import { TutorMarkdown } from '@/components/TutorMarkdown';
 import { LiveScorePanel } from '@/components/LiveScorePanel';
 import { useLiveSessionScore } from '@/hooks/use-live-session-score';
@@ -92,21 +92,10 @@ export default function LearningWorkspace() {
     setMessage('');
     
     try {
-      const newSequence = turns.length + 1;
-      const studentTurnId = crypto.randomUUID();
-      const studentTurnData = {
-        sessionId,
-        studentId: user.uid,
-        actor: 'student' as const,
-        content: userMsg,
-        sequence: newSequence,
-        createdAt: new Date(),
-      };
-      await setDoc(doc(db, 'sessionTurns', studentTurnId), studentTurnData);
-
-      // Only the session id and the student's message cross this boundary. Every
-      // policy input is read server-side, and the transcript is read from
-      // Firestore, so neither is sent from here.
+      // The browser no longer writes `sessionTurns` directly. Transcript content,
+      // ordering, and the fact that a message was actually submitted are policy
+      // and scoring inputs, so the authenticated server route authors both the
+      // student turn and every assistant/system turn under Admin credentials.
       const res = await fetch(window.location.origin + '/api/session/chat', {
         method: 'POST',
         headers: {
@@ -117,28 +106,28 @@ export default function LearningWorkspace() {
 
       if (!res.ok) {
         if (res.status === 429) {
-          // Distinguished from a failure: nothing is broken and retrying later
-          // will work, so the message says how long rather than "try again".
+          // Rate limiting happens before the server persists a turn, so the
+          // composer restores the unsent message below instead of claiming it was
+          // saved to the transcript.
           const retryAfter = Number(res.headers.get('Retry-After') ?? 0);
           const wait = Number.isFinite(retryAfter) && retryAfter > 0
             ? `about ${retryAfter} second${retryAfter === 1 ? '' : 's'}`
             : 'a moment';
           throw new Error(
-            `You are sending messages faster than the tutor can keep up. Your message was saved. Please wait ${wait} and try again.`,
+            `You are sending messages faster than the tutor can keep up. Please wait ${wait} and try again.`,
           );
         }
         throw new Error(
           res.status === 503
-            ? 'The tutor is not available right now. Your message was saved.'
-            : 'The tutor could not respond. Your message was saved, so you can try again.',
+            ? 'The tutor is not available right now. Your message has been restored so you can try again.'
+            : 'The tutor could not respond. Your message has been restored so you can try again.',
         );
       }
 
-      // The assistant turn is written by the endpoint under Admin credentials and
-      // arrives here through the turn listener. It carries the policy decision
-      // (`responsePlan`, `rationaleCode`, `allowedHintLevel`), which section 41.1
-      // lists among the values a client must never author. `currentHintLevel`
-      // reaches the UI the same way.
+      // Both the student turn and the assistant turn are written by the endpoint
+      // and arrive here through the turn listener. The assistant turn carries the
+      // policy decision (`responsePlan`, `rationaleCode`, `allowedHintLevel`),
+      // which section 41.1 lists among the values a client must never author.
       await res.json();
 
     } catch (err) {
