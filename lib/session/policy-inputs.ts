@@ -4,6 +4,7 @@ import {
   MODE_VALUES,
   STRICTNESS_VALUES,
 } from '@/lib/types/ai/request';
+import type { TutorResponsePlan } from '@/lib/types/ai/schema';
 import type { PolicyMode, PolicyStrictness } from '@/services/ai-gateway/src/policy';
 
 /**
@@ -138,9 +139,8 @@ export function resolvePolicyFromDocuments(
 
   const allowedModes = Array.isArray(assignment?.allowedModes)
     ? assignment.allowedModes.filter(isMode)
-    : null;
-
-  if (allowedModes && allowedModes.length > 0 && !allowedModes.includes(mode)) {
+    : [];
+  if (allowedModes.length > 0 && !allowedModes.includes(mode)) {
     mode = allowedModes[0];
     modeSource = 'assignment';
   }
@@ -150,7 +150,6 @@ export function resolvePolicyFromDocuments(
   const assignmentGrade = clampGrade(assignment?.grade);
   const classroomGrade = clampGrade(classroom?.grade);
   const profileGrade = clampGrade(studentProfile?.grade);
-
   if (assignmentGrade !== null) {
     grade = assignmentGrade;
     gradeSource = 'assignment';
@@ -162,83 +161,59 @@ export function resolvePolicyFromDocuments(
     gradeSource = 'studentProfile';
   }
 
-  const hasAssignment = assignment !== null;
-
-  // The image is only usable if it belongs to the same student as the session.
-  // A session could otherwise name someone else's confirmed image and inherit
-  // its confidence, which would turn R6 off with a borrowed id.
-  const image =
-    problemImage && problemImage.studentId === uid ? problemImage : null;
-
-  const rawConfidence = image?.extractionConfidence;
-  const extractionConfidence =
-    typeof rawConfidence === 'number' && Number.isFinite(rawConfidence)
-      ? Math.min(Math.max(rawConfidence, 0), 1)
-      : image
-        ? // The image exists but carries no usable confidence. Treating that as
-          // "no image" would skip R6 entirely, so it resolves to 0, which is
-          // below the threshold and therefore requires confirmation.
-          0
-        : undefined;
-
-  const extractionConfirmed = image ? image.confirmationStatus === 'confirmed' : undefined;
-
-  // Problem statement precedence. The confirmed text wins, because it is what the
-  // student verified against the image and it is the text the tutor must work on.
-  // `originalProblem` on the session is written by the browser, so it is the
-  // fallback rather than the source.
-  const confirmedText = typeof image?.confirmedText === 'string' ? image.confirmedText : '';
-  const sessionProblem =
-    typeof session.originalProblem === 'string' ? session.originalProblem : '';
-  const extractedText = typeof image?.extractedText === 'string' ? image.extractedText : '';
-
+  const assignmentPolicySource: PolicySource = assignment ? 'assignment' : 'default';
+  const language = studentProfile?.preferredLanguage === 'vi' ? 'vi' : 'en';
   const originalProblem =
-    confirmedText.trim().length > 0
-      ? confirmedText
-      : sessionProblem.trim().length > 0
-        ? sessionProblem
-        : extractedText;
+    typeof session.originalProblem === 'string' ? session.originalProblem : '';
+  const subject = typeof session.subject === 'string' ? session.subject : 'other';
+  const currentHintLevel = clampHintLevel(session.currentHintLevel);
+
+  const imageId = typeof session.imageId === 'string' ? session.imageId : undefined;
+  const imageOwned =
+    imageId !== undefined &&
+    problemImage !== null &&
+    problemImage !== undefined &&
+    problemImage.studentId === uid;
+  const extractionConfidence =
+    imageOwned && typeof problemImage?.extractionConfidence === 'number'
+      ? problemImage.extractionConfidence
+      : undefined;
+  const extractionConfirmed =
+    imageOwned && problemImage?.confirmationStatus === 'confirmed';
 
   return {
     sessionId,
     studentId: uid,
     originalProblem,
-    subject: typeof session.subject === 'string' ? session.subject : 'mathematics',
+    subject,
     grade,
-    language: session.language === 'vi' ? 'vi' : 'en',
+    language,
     mode,
     strictness,
-    // Only this endpoint writes it, and the rules exclude it from the
-    // client-writable set. Clamping here defends against data corruption, not
-    // against the client.
-    currentHintLevel: clampHintLevel(session.currentHintLevel),
+    currentHintLevel,
     allowFullSolutions:
-      hasAssignment && typeof assignment.allowFullSolutions === 'boolean'
+      typeof assignment?.allowFullSolutions === 'boolean'
         ? assignment.allowFullSolutions
         : undefined,
     requireTransferProblem:
-      hasAssignment && typeof assignment.requireTransferProblem === 'boolean'
+      typeof assignment?.requireTransferProblem === 'boolean'
         ? assignment.requireTransferProblem
         : undefined,
     extractionConfidence,
     extractionConfirmed,
-    imageId: image ? (typeof image.id === 'string' ? image.id : undefined) : undefined,
+    imageId: imageOwned ? imageId : undefined,
     sources: {
       strictness: strictnessSource,
       mode: modeSource,
       grade: gradeSource,
-      assignmentPolicy: hasAssignment ? 'assignment' : 'default',
+      assignmentPolicy: assignmentPolicySource,
     },
   };
 }
 
 /**
- * Reads every policy input for a session through the Admin SDK, and proves the
- * caller owns the session before returning anything.
- *
- * Admin credentials bypass security rules, so ownership is checked here
- * explicitly. A session belonging to another student returns `not_found` at the
- * call site so the endpoint does not confirm that the id exists.
+ * Resolve every policy input from Firestore under server credentials.
+ * Client-provided policy fields never enter this function.
  */
 export async function resolvePolicyInputs(
   sessionId: string,
@@ -255,10 +230,10 @@ export async function resolvePolicyInputs(
   const imageId = typeof session.imageId === 'string' ? session.imageId : null;
 
   const [assignmentSnapshot, classroomSnapshot, profileSnapshot, imageSnapshot] = await Promise.all([
-    assignmentId ? adminDb.collection('assignments').doc(assignmentId).get() : null,
-    classroomId ? adminDb.collection('classrooms').doc(classroomId).get() : null,
+    assignmentId ? adminDb.collection('assignments').doc(assignmentId).get() : Promise.resolve(null),
+    classroomId ? adminDb.collection('classrooms').doc(classroomId).get() : Promise.resolve(null),
     adminDb.collection('studentProfiles').doc(uid).get(),
-    imageId ? adminDb.collection('problemImages').doc(imageId).get() : null,
+    imageId ? adminDb.collection('problemImages').doc(imageId).get() : Promise.resolve(null),
   ]);
 
   const assignment =
@@ -270,8 +245,6 @@ export async function resolvePolicyInputs(
   const problemImage =
     imageSnapshot?.exists ? ((imageSnapshot.data() ?? {}) as Record<string, unknown>) : null;
 
-  // An assignment must belong to the classroom the session claims, otherwise a
-  // session could point at a lenient assignment from elsewhere.
   const assignmentBelongs =
     assignment !== null && (classroomId === null || assignment.classroomId === classroomId);
 
@@ -290,15 +263,22 @@ export async function resolvePolicyInputs(
 export interface TranscriptTurn {
   actor: 'student' | 'assistant' | 'system';
   content: string;
+  sequence: number;
+  /** Present only on server-authored assistant turns. */
+  responsePlan?: Partial<TutorResponsePlan>;
+  tutorMetadata?: {
+    responseType?: string;
+    studentActionRequired?: string | null;
+  };
 }
 
 /**
  * Reads the conversation transcript server-side.
  *
- * The transcript is a policy input, which the original contract missed: the
- * classifier derives `studentProvidedAttempt` and `attemptQuality` from it, and
- * both gate answer disclosure. A client that could supply its own history could
- * describe an attempt the student never made and collect help it had not earned.
+ * Content is needed for classifier/tutor context. The server-authored response
+ * plan and response type are retained too because learning evidence must be
+ * attributed to the task that was actually delivered on the previous assistant
+ * turn, not to the response plan being generated for the current message.
  */
 export async function loadTranscript(
   sessionId: string,
@@ -311,15 +291,41 @@ export async function loadTranscript(
 
   return snapshot.docs
     .map((doc) => doc.data() as Record<string, unknown>)
-    .map((data) => ({
-      actor:
+    .map((data) => {
+      const actor: TranscriptTurn['actor'] =
         data.actor === 'assistant' || data.actor === 'system'
           ? (data.actor as 'assistant' | 'system')
-          : ('student' as const),
-      content: typeof data.content === 'string' ? data.content : '',
-      sequence: typeof data.sequence === 'number' ? data.sequence : 0,
-    }))
+          : 'student';
+      const rawPlan =
+        data.responsePlan && typeof data.responsePlan === 'object'
+          ? (data.responsePlan as Partial<TutorResponsePlan>)
+          : undefined;
+      const rawMetadata =
+        data.tutorMetadata && typeof data.tutorMetadata === 'object'
+          ? (data.tutorMetadata as Record<string, unknown>)
+          : undefined;
+
+      return {
+        actor,
+        content: typeof data.content === 'string' ? data.content : '',
+        sequence: typeof data.sequence === 'number' ? data.sequence : 0,
+        responsePlan: actor === 'assistant' ? rawPlan : undefined,
+        tutorMetadata:
+          actor === 'assistant' && rawMetadata
+            ? {
+                responseType:
+                  typeof rawMetadata.responseType === 'string'
+                    ? rawMetadata.responseType
+                    : undefined,
+                studentActionRequired:
+                  typeof rawMetadata.studentActionRequired === 'string' ||
+                  rawMetadata.studentActionRequired === null
+                    ? rawMetadata.studentActionRequired
+                    : undefined,
+              }
+            : undefined,
+      };
+    })
     .sort((left, right) => left.sequence - right.sequence)
-    .slice(-limit)
-    .map(({ actor, content }) => ({ actor, content }));
+    .slice(-limit);
 }
