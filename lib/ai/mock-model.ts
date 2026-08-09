@@ -290,10 +290,26 @@ const EVALUATION = {
 const TRANSFER = {
   problemMarkdown: 'Solve x^2 - 7x + 12 = 0 without help.',
   topic: 'quadratic equations',
+  difficulty: 'similar',
+  expectedConcepts: ['factoring', 'zero-product'],
   internalAnswer: 'x = 3 or x = 4',
-  estimatedDifficulty: 'similar',
-  conceptsAssessed: ['factoring', 'zero-product'],
-  gradeLevel: 9,
+  internalSolutionSteps: [
+    '(x - 3)(x - 4) = 0',
+    'x = 3 or x = 4',
+  ],
+  validationNotes: [],
+};
+
+const TRANSFER_VALIDATION = {
+  valid: true,
+  answerCorrect: true,
+  stepsConsistent: true,
+  problemUnambiguous: true,
+  unitsCorrect: true,
+  sameConcept: true,
+  correctedAnswer: null,
+  confidence: 0.95,
+  issues: [],
 };
 
 const EXTRACTION = {
@@ -323,6 +339,9 @@ export async function deterministicModelHandler(
   }
   if (combined.includes('You are ThinkFirst, an adaptive educational assistant')) {
     return { text: JSON.stringify(tutorResponse(systemInstruction, latestStudentMessage(userText))) };
+  }
+  if (combined.includes('independent validator for a generated school-level transfer problem')) {
+    return { text: JSON.stringify(TRANSFER_VALIDATION) };
   }
   if (combined.includes('transfer')) {
     return { text: JSON.stringify(TRANSFER) };
