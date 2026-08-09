@@ -15,6 +15,7 @@ export const AI_VERSIONS = {
   evaluatorPrompt: 'evaluator-v1',
   transferPrompt: 'transfer-v1',
   validatorPrompt: 'validator-v1',
+  semanticValidatorPrompt: 'semantic-validator-v1',
   extractionPrompt: 'extraction-v1',
   policy: 'policy-v2',
   scoring: 'scoring-v2',
