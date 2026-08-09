@@ -1,138 +1,172 @@
 # Deployment
 
-ThinkFirst has three intended environments. The repository contains the deployment
-workflow, but this workspace has no Firebase project, Git remote, Cloud Run service,
-or deployment credentials. The commands below are the handoff procedure for the
-first provisioned environment.
+ThinkFirst is deployed as a Dockerized Next.js service on Google Cloud Run, with Firebase Authentication, Firestore and Storage. The repository also contains GitHub Actions for CI and environment-based deployment.
+
+Deployment existence is not the same as release readiness: live-model evaluation gates, App Check enforcement, environment separation and production review still require independent verification in the target environment.
 
 ## Environment model
 
 | Environment | Trigger | Purpose | Approval |
 |---|---|---|---|
-| Development | Push to `main` after CI | Shared integration environment | Automatic after CI |
-| Staging | Push to `staging` | Release candidate and acceptance checks | Automatic after CI |
-| Production | After development deploy on `main` | Real student and teacher traffic | GitHub Environment required reviewer |
+| Development | Push to `main` after CI | Shared integration deployment | Automatic after CI |
+| Staging | Push to `staging` | Release candidate | Automatic after CI |
+| Production | Trusted production deploy | Student/teacher traffic | GitHub Environment reviewer |
 
-Production is gated by the `production` GitHub Environment. Configure at least one
-required reviewer in **Settings -> Environments -> production -> Required reviewers**.
-The workflow job cannot start until that reviewer approves it. This setting is held
-in GitHub, not in YAML, so it must be configured before calling the pipeline
-production-ready.
+Production should use a protected GitHub Environment with at least one required reviewer.
 
-## One-time Google Cloud setup
+## Gemini configuration
 
-1. Create separate Firebase projects for development, staging and production, or
-   use separate projects owned by the same Google Cloud organization.
-2. Enable Firebase Authentication, the Google provider, Firestore, Cloud Storage,
-   Cloud Run, Secret Manager, and reCAPTCHA Enterprise.
-3. Register the web app in each Firebase project and put its public configuration in
-   the matching GitHub Environment variables. Public Firebase config is not a
-   secret; the Admin SDK credential and Gemini key are secrets.
-4. Create a Cloud Run service account with only the permissions it needs: deploy
-   permissions for the CI service account, Firebase Admin access for the runtime,
-   Secret Manager access to `GEMINI_API_KEY`, and Cloud Run invocation as required
-   by the chosen hosting policy.
-5. Store `GEMINI_API_KEY` in Secret Manager in each project. Do not put it in a
-   repository variable, `.env` file, workflow command argument, or image layer.
-6. Create a GitHub Actions service-account key (or replace the key-based auth with
-   Workload Identity Federation) and store it as the environment secret
-   `GCP_SERVICE_ACCOUNT_KEY`. `FIREBASE_TOKEN` is an environment secret used only
-   to deploy Firebase rules and indexes.
+The API key and model names have different security requirements:
 
-Prefer Workload Identity Federation for a production hardening pass. If a JSON key
-is used initially, rotate it regularly and never echo it in a workflow step.
+```text
+GEMINI_API_KEY -> Secret Manager -> Cloud Run runtime environment
+Gemini model ids -> normal environment variables
+```
 
-## Required GitHub settings
+Never put `GEMINI_API_KEY` in the Dockerfile, source tree, build arguments, GitHub variables, or a committed `.env` file.
 
-Set these variables separately in the `development`, `staging`, and `production`
-environments:
+Configured model roles:
 
-- `FIREBASE_PROJECT_ID`
-- `GCP_REGION` (for example, `us-central1`)
-- `APP_URL`
 - `GEMINI_TUTOR_MODEL`
 - `GEMINI_CLASSIFIER_MODEL`
 - `GEMINI_VALIDATOR_MODEL`
+- `GEMINI_EVALUATOR_MODEL`
+- `GEMINI_TRANSFER_MODEL`
+- `GEMINI_EXTRACTION_MODEL`
 
-Set these secrets separately in each environment:
+All six resolve through one code default to `gemini-3.6-flash` when no explicit override is supplied. `GEMINI_VALIDATOR_MODEL` is load-bearing: it independently verifies tutor semantics, evaluator evidence, transfer problems/answers, and image extraction where those results become trusted application data.
 
-- `FIREBASE_TOKEN`
+The current code intentionally uses more Gemini calls for correctness. Local deterministic checks remain as schema/security/math guardrails and can replace verified subsets later after their measured accuracy is high enough.
+
+## Required GitHub environment configuration
+
+Variables:
+
+- `FIREBASE_PROJECT_ID`
+- `GCP_REGION`
+- `APP_URL`
+- `GEMINI_TUTOR_MODEL` (optional override)
+- `GEMINI_CLASSIFIER_MODEL` (optional override)
+- `GEMINI_VALIDATOR_MODEL` (optional override)
+- `GEMINI_EVALUATOR_MODEL` (optional override)
+- `GEMINI_TRANSFER_MODEL` (optional override)
+- `GEMINI_EXTRACTION_MODEL` (optional override)
+
+Secrets used by the current workflow:
+
 - `GCP_SERVICE_ACCOUNT_KEY`
+- `FIREBASE_TOKEN`
 
-Environment secrets are not available to `pull_request` jobs from forks. The CI
-workflow intentionally uses emulators and `AI_MODEL_DRIVER=mock`, so it requires no
-secret at all. The deploy workflow only runs for pushes to `main` or `staging`,
-never for a pull request, and production additionally waits for the required
-reviewer.
+The application Gemini key itself is not passed as a workflow value. Cloud Run maps `GEMINI_API_KEY` from Secret Manager at runtime.
 
-## Local development
+## One-time Google Cloud setup
 
-Use the emulator-backed path; it does not require a Google Cloud credential:
+1. Create/select the Firebase-backed Google Cloud project for the target environment.
+2. Enable Firebase Authentication, Firestore, Cloud Storage, Cloud Run and Secret Manager.
+3. Register the web application and keep its public Firebase client configuration aligned with `firebase-applet-config.json` or the environment-specific equivalent.
+4. Create runtime/deployment service accounts with least privilege.
+5. Create Secret Manager secret `GEMINI_API_KEY` and add the current key as a secret version.
+6. Grant the Cloud Run runtime service account permission to access that secret.
+7. Configure GitHub environment variables/secrets for deployment.
+8. Register App Check/reCAPTCHA Enterprise before enabling enforcement.
+
+Prefer Workload Identity Federation over a long-lived JSON service-account key when production hardening is complete.
+
+## Local Docker
+
+Build:
 
 ```bash
-npm ci
-npm run emulators
-npm run dev
+docker build -t thinkfirst .
 ```
 
-In a second terminal, run the quality gates:
+Run with runtime environment values:
 
 ```bash
-npm run lint
-npm run typecheck
-npm test
-npm run eval
-npm run test:e2e
+docker run --rm -p 8080:8080 --env-file .env.local thinkfirst
 ```
 
-The Playwright configuration starts the Next.js dev server and selects the mock AI
-driver. Firebase emulators must already be running for E2E tests. `npm run seed`
-creates the deterministic demo classroom and is emulator-only.
+Docker does not interactively ask for the Gemini credential. If `GEMINI_API_KEY` is not provided at runtime, live Gemini calls cannot authenticate.
+
+## Cloud Run deployment
+
+The GitHub workflow deploys the built container and maps the Gemini secret at runtime. Equivalent manual shape:
+
+```bash
+gcloud run deploy <service> \
+  --image <image> \
+  --project <project-id> \
+  --region <region> \
+  --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest"
+```
+
+Model overrides may be added as ordinary `--set-env-vars` values. They are non-secret configuration.
+
+Changing a Secret Manager version does not bake a new key into the image. A new/restarted Cloud Run instance resolves the runtime secret mapping; deploying a new revision is the deterministic way to ensure every instance is using the intended configuration.
 
 ## Firebase deployment
 
-After authenticating the Firebase CLI and adding a `.firebaserc` or passing a
-project explicitly, deploy the rules and indexes from the repository root:
+Rules and indexes are deployed separately from the application image:
 
 ```bash
 firebase deploy --only firestore:rules,firestore:indexes,storage --project <project-id>
 ```
 
-Never deploy development rules to production by accident. Review the diff of
-`firebase/firestore.rules`, `firebase/firestore.indexes.json`, and
-`firebase/storage.rules` before each deployment.
+Review changes to:
 
-## App Check and production configuration
+- `firebase/firestore.rules`
+- `firebase/firestore.indexes.json`
+- `firebase/storage.rules`
 
-Before enabling enforcement:
+before production deployment.
 
-1. Register the deployed web domain in reCAPTCHA Enterprise.
-2. Put the verified website key in `firebase-applet-config.json` or the deployment
-   configuration used to generate it.
-3. Register the app in Firebase App Check.
-4. Monitor traffic in audit mode until legitimate traffic is verified.
-5. Enable enforcement for Authentication, Firestore, and Storage one service at a
-   time, with a rollback owner identified.
+## CI verification
 
-Do not add an unverified crisis contact while configuring safety. The application
-intentionally ships no hotline number until a jurisdiction, reviewer, and review
-date are recorded, as documented in `docs/ASSUMPTIONS.md`.
+`.github/workflows/ci.yml` is configured to run on pull requests and on pushes to `main`, with:
+
+```text
+lint
+-> typecheck
+-> unit tests
+-> Firestore rules tests
+-> server integration tests
+-> build
+```
+
+It also runs deterministic prompt evaluation and emulator-backed Playwright smoke tests. Those tests use the mock AI driver and therefore do not prove live Gemini quality.
+
+At the time of the 2026-08-09 Gemini-first validation audit, the GitHub connector did not report a CI workflow run for the current draft PR head. Do not label the branch verified until those checks actually execute successfully.
+
+## App Check and production hardening
+
+Before enforcing App Check:
+
+1. Register the deployed domain with reCAPTCHA Enterprise.
+2. Configure the verified site key.
+3. Register the Firebase app with App Check.
+4. Observe legitimate traffic before enforcement.
+5. Enable enforcement one service at a time with a rollback owner.
+
+Do not weaken Firestore or Storage authorization rules as an incident workaround.
 
 ## Rollback
 
-1. Stop the production workflow if the approval has not been granted.
-2. For an application regression, redeploy the previous Cloud Run revision and
-   confirm the health endpoint and sign-in flow.
-3. For a rules or index regression, restore the previously reviewed rules/index
-   files and deploy only the affected Firebase resource.
-4. Disable a newly enabled App Check enforcement service if it blocks verified
-   users, then return it to monitoring mode while investigating.
-5. Record the incident, revision, rule release, affected environment, and recovery
-   in the project incident log. Never roll back by weakening authorization rules.
+Application regression:
 
-## Current limitation
+1. Identify the last known-good Cloud Run revision.
+2. Route traffic back to that revision or redeploy the known-good image.
+3. Verify authentication, tutoring, image handling and persistence.
 
-The workflow has not run on GitHub yet because this workspace has no remote
-repository or cloud project. Local emulators, deterministic evaluation, lint,
-typecheck, build, unit tests, rules tests, integration tests, and the mock-backed
-application paths remain the available verification evidence.
+Rules/index regression:
+
+1. Restore the last reviewed rules/index files.
+2. Deploy only the affected Firebase resources.
+3. Re-run negative authorization tests.
+
+Gemini regression/configuration issue:
+
+1. Update the affected model environment variable or Secret Manager key/version.
+2. Deploy a new Cloud Run revision.
+3. Verify logs identify the intended model and validator provenance.
+
+Record the incident and recovery in the repository/project operational record.
