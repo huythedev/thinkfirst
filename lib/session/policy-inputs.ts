@@ -273,12 +273,17 @@ export interface TranscriptTurn {
 }
 
 /**
- * Reads the conversation transcript server-side.
+ * Reads only policy-trusted conversation history.
  *
- * Content is needed for classifier/tutor context. The server-authored response
- * plan and response type are retained too because learning evidence must be
- * attributed to the task that was actually delivered on the previous assistant
- * turn, not to the response plan being generated for the current message.
+ * Student turns used to be client-creatable. A server read of those legacy
+ * documents does not make them trusted, so unmarked student turns are excluded
+ * from classifier/tutor/evaluator context after the server-authoring cutover.
+ * Assistant/system turns were already server-only; new student turns carry
+ * `serverAuthored: true` from `/api/session/chat`.
+ *
+ * The browser may still render legacy turns from Firestore for continuity. This
+ * helper is intentionally stricter because its output controls policy and score
+ * evidence rather than display.
  */
 export async function loadTranscript(
   sessionId: string,
@@ -291,11 +296,16 @@ export async function loadTranscript(
 
   return snapshot.docs
     .map((doc) => doc.data() as Record<string, unknown>)
-    .map((data) => {
+    .map((data): TranscriptTurn | null => {
       const actor: TranscriptTurn['actor'] =
         data.actor === 'assistant' || data.actor === 'system'
           ? (data.actor as 'assistant' | 'system')
           : 'student';
+
+      if (actor === 'student' && data.serverAuthored !== true) {
+        return null;
+      }
+
       const rawPlan =
         data.responsePlan && typeof data.responsePlan === 'object'
           ? (data.responsePlan as Partial<TutorResponsePlan>)
@@ -326,6 +336,7 @@ export async function loadTranscript(
             : undefined,
       };
     })
+    .filter((turn): turn is TranscriptTurn => turn !== null)
     .sort((left, right) => left.sequence - right.sequence)
     .slice(-limit);
 }
