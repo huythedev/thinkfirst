@@ -1,5 +1,10 @@
 import { Schema, Type } from '@google/genai';
-import { getModelClient } from '@/lib/ai/model-client';
+import {
+  configuredGeminiModel,
+  getModelClient,
+  modelNameFor,
+} from '@/lib/ai/model-client';
+import { runSemanticValidation } from '@/lib/ai/semantic-validation';
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import {
@@ -25,7 +30,8 @@ import {
   isTransferValidationApproved,
   parseTransferValidation,
 } from '@/lib/types/ai/transfer-validation';
-import { validateAnswer } from '@/lib/math/validation';
+import type { SemanticValidation } from '@/lib/types/ai/semantic-validation';
+import { validateAnswer, type ValidationVerdict } from '@/lib/math/validation';
 import { TransferOutcome } from '@/lib/types/scoring';
 
 /**
@@ -33,11 +39,10 @@ import { TransferOutcome } from '@/lib/types/scoring';
  * evaluation: the four AI layers Phase 5 lists that Phase 4 did not build.
  *
  * Everything here runs server-side and writes `studentAttempts` under Admin
- * credentials. That is not incidental. These evaluations feed the Independence
- * Score, and §56.4 forbids the client writing a score; a client that could author
- * its own rubric judgments could author its own score by proxy, which is the same
- * exploit class as the forged `strictness` that Phase 4 closed. The security rule
- * for `studentAttempts` was tightened in the same session for this reason.
+ * credentials. These evaluations feed the Independence Score, so model output is
+ * never trusted from a single generation: provider schemas are followed by Zod,
+ * and evaluator evidence is independently checked by the configured Gemini
+ * validator before it can become stored scoring evidence.
  */
 
 const rubricProperties = {
@@ -170,20 +175,49 @@ export interface EvaluationContext {
   grade: number;
 }
 
+export interface SemanticValidationMetadata {
+  available: boolean;
+  approved: boolean;
+  modelName: string;
+  promptVersion: string;
+  confidence: number;
+}
+
+export interface AttemptEvaluationResult {
+  evaluation: AttemptEvaluation;
+  available: boolean;
+  modelName: string;
+  semanticValidation: SemanticValidationMetadata | null;
+}
+
+function validationMetadata(input: {
+  available: boolean;
+  approved: boolean;
+  modelName: string;
+  promptVersion: string;
+  validation: SemanticValidation | null;
+}): SemanticValidationMetadata {
+  return {
+    available: input.available,
+    approved: input.approved,
+    modelName: input.modelName,
+    promptVersion: input.promptVersion,
+    confidence: input.validation?.confidence ?? 0,
+  };
+}
+
 /**
- * Evaluates one student attempt. Revalidated server-side after generation, per
- * the same rule the classifier and tutor follow: provider-side `responseSchema`
- * is a hint, not a guarantee.
+ * Evaluate one student attempt, then independently validate the evaluator's
+ * claims before they can become scoring evidence.
  *
- * A model that returns nothing usable yields `UNAVAILABLE_EVALUATION`, whose
- * confidence is 0. That reduces coverage and shows up in the instrumentation
- * metric rather than being scored as though the student did nothing, which is
- * measured defect 3.
+ * If either model call fails, either schema parse fails, or the independent
+ * verifier rejects the evaluator judgement, the observation becomes unavailable
+ * with confidence 0. Missing evidence reduces coverage; it never turns into a
+ * confident score.
  */
-export async function evaluateAttempt(
-  context: EvaluationContext,
-): Promise<{ evaluation: AttemptEvaluation; available: boolean; modelName: string }> {
-  const modelName = process.env.GEMINI_EVALUATOR_MODEL || 'gemini-3.6-flash';
+export async function evaluateAttempt(context: EvaluationContext): Promise<AttemptEvaluationResult> {
+  const configuredModel = configuredGeminiModel('evaluator');
+  const recordedModelName = modelNameFor(configuredModel);
 
   const prompt =
     `Problem: ${context.problem}\n` +
@@ -194,52 +228,97 @@ export async function evaluateAttempt(
 
   try {
     const response = await getModelClient().models.generateContent({
-      model: modelName,
-      contents: [{ role: 'user', parts: [{ text: EVALUATOR_PROMPT_V1 + '\n\n' + prompt }] }],
+      model: configuredModel,
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
+        systemInstruction: EVALUATOR_PROMPT_V1,
         responseMimeType: 'application/json',
         responseSchema: evaluationSchema,
-        temperature: 0.1,
       },
     });
 
     const parsed = parseAttemptEvaluation(response.text);
     if (!parsed.ok) {
       console.warn('Evaluator output rejected by server-side validation:', parsed.detail);
-      return { evaluation: UNAVAILABLE_EVALUATION, available: false, modelName };
+      return {
+        evaluation: UNAVAILABLE_EVALUATION,
+        available: false,
+        modelName: recordedModelName,
+        semanticValidation: null,
+      };
     }
 
-    return { evaluation: parsed.value, available: true, modelName };
+    const semantic = await runSemanticValidation({
+      validationKind: 'attempt_evaluation',
+      data: {
+        problem: context.problem,
+        learningObjective: context.learningObjective,
+        grade: context.grade,
+        transcript: context.transcript,
+        studentMessage: context.studentMessage,
+        candidateEvaluation: parsed.value,
+      },
+    });
+    const metadata = validationMetadata(semantic);
+
+    if (!semantic.approved) {
+      console.warn(
+        'Evaluator judgement rejected by independent semantic validation:',
+        semantic.validation?.issues.join('; ') || 'validator unavailable or did not approve',
+      );
+      return {
+        evaluation: UNAVAILABLE_EVALUATION,
+        available: false,
+        modelName: recordedModelName,
+        semanticValidation: metadata,
+      };
+    }
+
+    return {
+      evaluation: parsed.value,
+      available: true,
+      modelName: recordedModelName,
+      semanticValidation: metadata,
+    };
   } catch (error) {
     // A failed evaluation must never fail the tutoring turn. The student still
     // gets their response; the score records that this observation is missing.
     console.warn(
-      'Evaluator call failed:',
+      'Evaluator or evaluator-validation call failed:',
       error instanceof Error ? error.message : 'unknown error',
     );
-    return { evaluation: UNAVAILABLE_EVALUATION, available: false, modelName };
+    return {
+      evaluation: UNAVAILABLE_EVALUATION,
+      available: false,
+      modelName: recordedModelName,
+      semanticValidation: null,
+    };
   }
 }
 
+export interface GeneratedTransferProblem {
+  problem: TransferProblem;
+  validated: true;
+  modelName: string;
+  validation: SemanticValidationMetadata;
+}
+
 /**
- * Generates a transfer problem and validates it independently before it can be
- * issued. The cheap deterministic final-step check is retained as a signal, but
- * it is not sufficient: self-consistency between a generator's last step and its
- * own answer does not prove that the natural-language problem actually has that
- * answer. Gemini validator approval is therefore the load-bearing second pass.
- *
- * Fail closed: malformed validator output, a rejected problem, or confidence
- * below the approval threshold returns null. The caller already treats a missing
- * transfer as missing evidence rather than failing the student's tutoring turn.
+ * Generate a transfer problem and validate it independently before it can be
+ * issued. The deterministic final-step check is retained as a useful signal, but
+ * self-consistency is not approval: a different Gemini validation pass must
+ * independently establish problem/answer/steps/units/concept consistency.
  */
 export async function generateTransferProblem(context: {
   problem: string;
   topic: string | null;
   grade: number;
   conceptTags: string[];
-}): Promise<{ problem: TransferProblem; validated: boolean; modelName: string } | null> {
-  const modelName = process.env.GEMINI_TRANSFER_MODEL || 'gemini-3.6-flash';
-  const validatorModel = process.env.GEMINI_VALIDATOR_MODEL || 'gemini-3.6-flash';
+}): Promise<GeneratedTransferProblem | null> {
+  const configuredModel = configuredGeminiModel('transfer');
+  const validatorModel = configuredGeminiModel('validator');
+  const recordedModelName = modelNameFor(configuredModel);
+  const recordedValidatorModelName = modelNameFor(validatorModel);
 
   const prompt =
     `Completed problem: ${context.problem}\n` +
@@ -249,12 +328,12 @@ export async function generateTransferProblem(context: {
 
   try {
     const response = await getModelClient().models.generateContent({
-      model: modelName,
-      contents: [{ role: 'user', parts: [{ text: TRANSFER_PROMPT_V1 + '\n\n' + prompt }] }],
+      model: configuredModel,
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
+        systemInstruction: TRANSFER_PROMPT_V1,
         responseMimeType: 'application/json',
         responseSchema: transferSchema,
-        temperature: 0.6,
       },
     });
 
@@ -265,7 +344,7 @@ export async function generateTransferProblem(context: {
     }
 
     const lastStep = parsed.value.internalSolutionSteps.at(-1);
-    const deterministicVerdict =
+    const deterministicVerdict: ValidationVerdict =
       lastStep === undefined
         ? 'unsupported'
         : validateAnswer(lastStep, parsed.value.internalAnswer).verdict;
@@ -288,15 +367,13 @@ export async function generateTransferProblem(context: {
           role: 'user',
           parts: [
             {
-              text:
-                VALIDATOR_PROMPT_V1 +
-                '\n\nInput to validate:\n' +
-                JSON.stringify(validatorInput),
+              text: `<validation_input>\n${JSON.stringify(validatorInput)}\n</validation_input>`,
             },
           ],
         },
       ],
       config: {
+        systemInstruction: VALIDATOR_PROMPT_V1,
         responseMimeType: 'application/json',
         responseSchema: transferValidatorSchema,
       },
@@ -316,20 +393,28 @@ export async function generateTransferProblem(context: {
       return null;
     }
 
-    // validationNotes are internal and never shown to the student. Recording the
-    // validating model/version here preserves provenance without widening the
-    // route or exposing the hidden reference answer.
     const problem: TransferProblem = {
       ...parsed.value,
       validationNotes: [
         ...parsed.value.validationNotes,
-        `Independent validation: ${VALIDATOR_PROMPT_VERSION}; model=${validatorModel}; ` +
+        `Independent validation: ${VALIDATOR_PROMPT_VERSION}; model=${recordedValidatorModelName}; ` +
           `confidence=${validation.value.confidence.toFixed(2)}; ` +
           `deterministicFinalStep=${deterministicVerdict}`,
       ],
     };
 
-    return { problem, validated: true, modelName };
+    return {
+      problem,
+      validated: true,
+      modelName: recordedModelName,
+      validation: {
+        available: true,
+        approved: true,
+        modelName: recordedValidatorModelName,
+        promptVersion: VALIDATOR_PROMPT_VERSION,
+        confidence: validation.value.confidence,
+      },
+    };
   } catch (error) {
     console.warn(
       'Transfer generation or validation failed:',
@@ -339,40 +424,39 @@ export async function generateTransferProblem(context: {
   }
 }
 
+export interface TransferOutcomeResult {
+  outcome: TransferOutcome | null;
+  correctnessSource: 'deterministic' | 'evaluator' | 'unavailable';
+  confidence: number;
+}
+
+function correctTransferOutcome(hintDelta: number): TransferOutcome {
+  if (hintDelta <= 0) return 'independent_correct';
+  if (hintDelta === 1) return 'minor_prompt';
+  return 'one_conceptual_hint';
+}
+
 /**
- * Establishes the transfer outcome, in the precedence §56.2 sets:
- *
- *   1. deterministic check against the stored reference answer  -> confidence 1.0
- *   2. evaluator judgment                                       -> capped at 0.7
- *   3. neither                                                  -> `unavailable`
- *
- * Correctness is decided *before* fluency is considered. Under v1, fluency alone
- * mapped a wrong answer to `independent_correct` and the full 30 points, which is
- * measured defect 6. So the hint delta below only chooses *among* correct
- * outcomes; it can never turn an incorrect answer into a correct one.
+ * Pure deterministic/evaluator fallback retained for scoring tests and as a
+ * local signal. Production route code should call `validateTransferOutcome`,
+ * which independently verifies the judgement with Gemini before storing it.
  */
 export function resolveTransferOutcome(input: {
   studentAnswer: string | null;
   referenceAnswer: string | null;
   evaluatorCorrectness: number | null;
   hintDelta: number;
-}): {
-  outcome: TransferOutcome | null;
-  correctnessSource: 'deterministic' | 'evaluator' | 'unavailable';
-  confidence: number;
-} {
+}): TransferOutcomeResult {
   const { studentAnswer, referenceAnswer, evaluatorCorrectness, hintDelta } = input;
-
-  const correctOutcome = (): TransferOutcome => {
-    if (hintDelta <= 0) return 'independent_correct';
-    if (hintDelta === 1) return 'minor_prompt';
-    return 'one_conceptual_hint';
-  };
 
   if (studentAnswer && referenceAnswer) {
     const result = validateAnswer(studentAnswer, referenceAnswer);
     if (result.verdict === 'equivalent') {
-      return { outcome: correctOutcome(), correctnessSource: 'deterministic', confidence: 1 };
+      return {
+        outcome: correctTransferOutcome(hintDelta),
+        correctnessSource: 'deterministic',
+        confidence: 1,
+      };
     }
     if (result.verdict === 'not_equivalent') {
       return {
@@ -385,7 +469,11 @@ export function resolveTransferOutcome(input: {
 
   if (typeof evaluatorCorrectness === 'number') {
     if (evaluatorCorrectness >= 0.85) {
-      return { outcome: correctOutcome(), correctnessSource: 'evaluator', confidence: 0.7 };
+      return {
+        outcome: correctTransferOutcome(hintDelta),
+        correctnessSource: 'evaluator',
+        confidence: 0.7,
+      };
     }
     if (evaluatorCorrectness >= 0.4) {
       return { outcome: 'partial', correctnessSource: 'evaluator', confidence: 0.7 };
@@ -403,12 +491,142 @@ export function resolveTransferOutcome(input: {
   return { outcome: null, correctnessSource: 'unavailable', confidence: 0 };
 }
 
+export interface ValidatedTransferOutcome extends TransferOutcomeResult {
+  semanticValidation: SemanticValidationMetadata;
+}
+
 /**
- * Persists one evaluation to `studentAttempts` under Admin credentials.
+ * Load-bearing transfer correctness is Gemini-first for now. The local checker
+ * remains a signal, but a deterministic verdict reaches confidence 1.0 only when
+ * an independent Gemini verifier agrees. A disagreement is unavailable rather
+ * than a confident student penalty.
  *
- * The document carries both rubrics so `deriveSessionMetrics` can read stored
- * judgments instead of re-requesting them, which is what makes recomputation
- * deterministic per §56.4.
+ * When the local checker cannot decide, the independent Gemini judgement is the
+ * model-based path required by §56.2 and remains capped at confidence 0.7.
+ */
+export async function validateTransferOutcome(input: {
+  problemMarkdown: string;
+  studentAnswer: string | null;
+  referenceAnswer: string | null;
+  evaluatorCorrectness: number | null;
+  hintDelta: number;
+}): Promise<ValidatedTransferOutcome> {
+  const { problemMarkdown, studentAnswer, referenceAnswer, evaluatorCorrectness, hintDelta } = input;
+
+  const deterministicVerdict: ValidationVerdict =
+    studentAnswer && referenceAnswer
+      ? validateAnswer(studentAnswer, referenceAnswer).verdict
+      : 'unsupported';
+
+  const semantic = await runSemanticValidation({
+    validationKind: 'transfer_answer',
+    data: {
+      problemMarkdown,
+      studentAnswer,
+      referenceAnswer,
+      evaluatorCorrectness,
+      deterministicVerdict,
+    },
+  });
+  const metadata = validationMetadata(semantic);
+  const judgement = semantic.validation;
+
+  if (
+    !semantic.available ||
+    !judgement ||
+    !judgement.approved ||
+    judgement.confidence < 0.7 ||
+    judgement.verdict === 'unsupported' ||
+    judgement.verdict === 'rejected' ||
+    judgement.verdict === 'approved'
+  ) {
+    return {
+      outcome: null,
+      correctnessSource: 'unavailable',
+      confidence: 0,
+      semanticValidation: metadata,
+    };
+  }
+
+  if (deterministicVerdict === 'equivalent') {
+    if (judgement.verdict !== 'correct') {
+      return {
+        outcome: null,
+        correctnessSource: 'unavailable',
+        confidence: 0,
+        semanticValidation: metadata,
+      };
+    }
+    return {
+      outcome: correctTransferOutcome(hintDelta),
+      correctnessSource: 'deterministic',
+      confidence: 1,
+      semanticValidation: metadata,
+    };
+  }
+
+  if (deterministicVerdict === 'not_equivalent') {
+    if (judgement.verdict !== 'incorrect' && judgement.verdict !== 'unable') {
+      return {
+        outcome: null,
+        correctnessSource: 'unavailable',
+        confidence: 0,
+        semanticValidation: metadata,
+      };
+    }
+    return {
+      outcome: judgement.verdict === 'unable' ? 'unable_to_begin' : 'attempted_incorrect',
+      correctnessSource: 'deterministic',
+      confidence: 1,
+      semanticValidation: metadata,
+    };
+  }
+
+  const modelConfidence = Math.min(0.7, judgement.confidence);
+  switch (judgement.verdict) {
+    case 'correct':
+      return {
+        outcome: correctTransferOutcome(hintDelta),
+        correctnessSource: 'evaluator',
+        confidence: modelConfidence,
+        semanticValidation: metadata,
+      };
+    case 'partial':
+      return {
+        outcome: 'partial',
+        correctnessSource: 'evaluator',
+        confidence: modelConfidence,
+        semanticValidation: metadata,
+      };
+    case 'incorrect':
+      return {
+        outcome: 'attempted_incorrect',
+        correctnessSource: 'evaluator',
+        confidence: modelConfidence,
+        semanticValidation: metadata,
+      };
+    case 'unable':
+      return {
+        outcome: 'unable_to_begin',
+        correctnessSource: 'evaluator',
+        confidence: modelConfidence,
+        semanticValidation: metadata,
+      };
+    default:
+      return {
+        outcome: null,
+        correctnessSource: 'unavailable',
+        confidence: 0,
+        semanticValidation: metadata,
+      };
+  }
+}
+
+/**
+ * Persist one evaluation to `studentAttempts` under Admin credentials.
+ * Semantic-verifier provenance is stored alongside the evaluator output so
+ * recomputation remains deterministic and an audit can distinguish generated
+ * evidence from independently verified evidence.
  */
 export async function recordAttemptEvaluation(input: {
   sessionId: string;
@@ -418,12 +636,14 @@ export async function recordAttemptEvaluation(input: {
   evaluation: AttemptEvaluation;
   available: boolean;
   modelName: string;
+  semanticValidation?: SemanticValidationMetadata | null;
   transfer?: {
     outcome: TransferOutcome | null;
     correctnessSource: 'deterministic' | 'evaluator' | 'unavailable';
     confidence: number;
     referenceAnswer: string | null;
     studentAnswer: string | null;
+    semanticValidation?: SemanticValidationMetadata | null;
   };
 }): Promise<string> {
   const ref = adminDb.collection('studentAttempts').doc();
@@ -448,6 +668,7 @@ export async function recordAttemptEvaluation(input: {
       verificationRubric: input.evaluation.verificationRubric,
       extractedAnswer: input.evaluation.extractedAnswer,
       evaluationAvailable: input.available,
+      semanticValidation: input.semanticValidation ?? null,
       ...(input.transfer
         ? {
             transferOutcome: input.transfer.outcome,
@@ -455,6 +676,7 @@ export async function recordAttemptEvaluation(input: {
             correctnessConfidence: input.transfer.confidence,
             referenceAnswer: input.transfer.referenceAnswer,
             studentAnswer: input.transfer.studentAnswer,
+            transferSemanticValidation: input.transfer.semanticValidation ?? null,
           }
         : {}),
     },
