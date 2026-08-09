@@ -439,9 +439,9 @@ describe('cross-student session isolation', () => {
     );
   });
 
-  it('the owning student can append a turn to their own session', async () => {
+  it('the owning student cannot append a transcript turn directly', async () => {
     await seed();
-    await assertSucceeds(
+    await assertFails(
       setDoc(doc(asStudentA(), 'sessionTurns', 'turn-new'), {
         sessionId: 'session-a',
         studentId: STUDENT_A,
