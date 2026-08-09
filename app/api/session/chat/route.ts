@@ -22,6 +22,11 @@ import { verifyRequest } from '@/lib/firebase/verify-request';
 import { adminDb } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { nextHintLevel } from '@/lib/session/hint-ladder';
+import {
+  acquireSessionRequestLock,
+  releaseSessionRequestLock,
+  type SessionRequestLock,
+} from '@/lib/session/request-lock';
 import { reserveTurnSequences } from '@/lib/session/turn-sequence';
 import {
   loadTranscript,
@@ -118,45 +123,32 @@ function nextTranscriptSequence(turns: TranscriptTurn[]): number {
   return turns.reduce((max, turn) => Math.max(max, turn.sequence), 0) + 1;
 }
 
-/**
- * All transcript writes are server-authored. The request message is persisted
- * under Admin credentials at the sequence number reserved transactionally for
- * this request, so a client cannot forge policy/scoring history or choose its
- * ordering.
- */
-async function normalizeTranscriptForRequest(input: {
+function isRetryOfOrphanStudentTurn(
+  transcript: TranscriptTurn[],
+  message: string,
+): transcript is [...TranscriptTurn[], TranscriptTurn] {
+  const last = transcript.at(-1);
+  return last?.actor === 'student' && last.content === message;
+}
+
+/** Persist a fresh current student turn under server credentials. */
+async function persistCurrentStudentTurn(input: {
   sessionId: string;
   studentId: string;
   message: string;
-  transcript: TranscriptTurn[];
-  currentStudentSequence: number;
-}): Promise<{
-  priorTranscript: TranscriptTurn[];
-  completeTranscript: TranscriptTurn[];
-  currentStudentSequence: number;
-}> {
+  sequence: number;
+}): Promise<void> {
   const ref = adminDb.collection('sessionTurns').doc();
   await ref.set({
     id: ref.id,
     sessionId: input.sessionId,
     studentId: input.studentId,
-    sequence: input.currentStudentSequence,
+    sequence: input.sequence,
     actor: 'student',
     content: input.message,
     createdAt: FieldValue.serverTimestamp(),
     serverAuthored: true,
   });
-
-  const currentTurn: TranscriptTurn = {
-    actor: 'student',
-    content: input.message,
-    sequence: input.currentStudentSequence,
-  };
-  return {
-    priorTranscript: input.transcript,
-    completeTranscript: [...input.transcript, currentTurn],
-    currentStudentSequence: input.currentStudentSequence,
-  };
 }
 
 function previousAssistantTurn(priorTranscript: TranscriptTurn[]): TranscriptTurn | undefined {
@@ -212,6 +204,7 @@ function deliveredTransferHintDelta(
 
 export async function POST(req: NextRequest) {
   let failedSessionId: string | null = null;
+  let sessionLock: SessionRequestLock | null = null;
 
   try {
     const auth = await verifyRequest(req);
@@ -256,25 +249,50 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Session not found.' }, { status: 404 });
     }
 
+    sessionLock = await acquireSessionRequestLock(sessionId);
+    if (!sessionLock) {
+      return NextResponse.json(
+        { error: 'Another tutor request is already being processed for this session.' },
+        { status: 409, headers: { 'Retry-After': '1' } },
+      );
+    }
+
     const policy = resolution.inputs;
     const loadedTranscript = await loadTranscript(sessionId);
-    const [currentStudentSequence, assistantSequence] = await reserveTurnSequences(
-      sessionId,
-      nextTranscriptSequence(loadedTranscript),
-      2,
-    );
+
+    let currentStudentSequence: number;
+    let assistantSequence: number;
+    let priorTranscript: TranscriptTurn[];
+
+    if (isRetryOfOrphanStudentTurn(loadedTranscript, message)) {
+      const orphan = loadedTranscript[loadedTranscript.length - 1];
+      currentStudentSequence = orphan.sequence;
+      priorTranscript = loadedTranscript.slice(0, -1);
+      [assistantSequence] = await reserveTurnSequences(
+        sessionId,
+        nextTranscriptSequence(loadedTranscript),
+        1,
+      );
+    } else {
+      [currentStudentSequence, assistantSequence] = await reserveTurnSequences(
+        sessionId,
+        nextTranscriptSequence(loadedTranscript),
+        2,
+      );
+      if (currentStudentSequence) {
+        await persistCurrentStudentTurn({
+          sessionId,
+          studentId: auth.uid,
+          message,
+          sequence: currentStudentSequence,
+        });
+      }
+      priorTranscript = loadedTranscript;
+    }
+
     if (!currentStudentSequence || !assistantSequence) {
       throw new Error('Failed to reserve transcript sequence numbers.');
     }
-
-    const normalized = await normalizeTranscriptForRequest({
-      sessionId,
-      studentId: auth.uid,
-      message,
-      transcript: loadedTranscript,
-      currentStudentSequence,
-    });
-    const { priorTranscript } = normalized;
 
     const conversationHistory = priorTranscript
       .map((turn) => `${turn.actor === 'student' ? 'Student' : 'Tutor'}: ${turn.content}`)
@@ -492,6 +510,7 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
     });
     batch.update(sessionRef, {
       currentHintLevel: persistedHintLevel,
+      endedWithSystemError: false,
       updatedAt: FieldValue.serverTimestamp(),
     });
     await batch.commit();
@@ -531,6 +550,12 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
     }
 
     return NextResponse.json({ error: 'Failed to generate a response.' }, { status: 500 });
+  } finally {
+    if (sessionLock) {
+      await releaseSessionRequestLock(sessionLock).catch((error) => {
+        console.error('Failed to release session request lock:', error);
+      });
+    }
   }
 }
 
@@ -587,8 +612,10 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
   };
 
   const turnRef = adminDb.collection('sessionTurns').doc();
+  const sessionRef = adminDb.collection('learningSessions').doc(input.sessionId);
+  const batch = adminDb.batch();
 
-  await turnRef.set({
+  batch.set(turnRef, {
     id: turnRef.id,
     sessionId: input.sessionId,
     studentId: input.studentId,
@@ -626,6 +653,11 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
     },
     excludedFromScoring: true,
   });
+  batch.update(sessionRef, {
+    endedWithSystemError: false,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  await batch.commit();
 
   await recordSafetyEvent({
     sessionId: input.sessionId,
@@ -636,11 +668,6 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
     flagForTeacherReview: safety.flagForTeacherReview,
     confidence: input.confidence,
   });
-
-  await adminDb
-    .collection('learningSessions')
-    .doc(input.sessionId)
-    .update({ updatedAt: FieldValue.serverTimestamp() });
 
   return NextResponse.json({
     tutorData,
@@ -752,9 +779,6 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
         answerSemanticValidation: outcome.semanticValidation,
       });
     } else {
-      // A hint request while a transfer is pending is not itself a transfer
-      // answer. Keep the transfer pending and record the message as ordinary
-      // intermediate evidence; a later extracted answer will close the task.
       const attemptType: AttemptType =
         pendingTransfer && deliveredType === 'transfer' ? 'intermediate' : deliveredType;
       await recordAttemptEvaluation({
@@ -769,9 +793,6 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
       });
     }
 
-    // Do not issue a second transfer while one is already pending. A new transfer
-    // is a real student obligation only after the exact validated public problem
-    // and hidden reference are atomically persisted together.
     if (input.responsePlan.generateTransferProblem && !pendingTransfer) {
       const generated = await generateTransferProblem({
         problem: input.policy.originalProblem,
