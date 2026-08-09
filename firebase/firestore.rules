@@ -58,12 +58,6 @@ service cloud.firestore {
         get(/databases/$(database)/documents/classrooms/$(classroomId)).data.teacherId == request.auth.uid;
     }
 
-    function ownsSession(sessionId) {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/learningSessions/$(sessionId)) &&
-        get(/databases/$(database)/documents/learningSessions/$(sessionId)).data.studentId == request.auth.uid;
-    }
-
     // users
     //
     // Role is chosen once at onboarding and is immutable from the client after
@@ -237,27 +231,17 @@ service cloud.firestore {
 
     // sessionTurns
     //
-    // studentId is denormalized onto every turn so a transcript read is
-    // ownership-scoped without a lookup per document. Session ownership is still
-    // verified on create, otherwise one student could insert turns into another
-    // student's session.
-    //
-    // A client may author only its own 'student' turns. Assistant and system
-    // turns carry the policy decision -- responsePlan, rationaleCode,
-    // allowedHintLevel, mayRevealFinalAnswer -- which section 41.1 lists among the
-    // values never trusted from a client, so the tutoring endpoint writes them
-    // with Admin credentials, which bypass this rule. A browser that could author
-    // an assistant turn could also write the transcript that policy reads back,
-    // and so manufacture an attempt it never made.
+    // Transcript content, ordering, actor identity, intent analysis and response
+    // plans all feed policy or scoring. Reading a client-authored student turn
+    // back through the Admin SDK would only launder client input into a trusted
+    // server read. Therefore every turn -- student, assistant and system -- is
+    // authored by `/api/session/chat` under Admin credentials. Clients retain
+    // owner-scoped read access so the realtime workspace can render the chat.
     match /sessionTurns/{turnId} {
       allow get, list: if isSignedIn() && (
         resource.data.studentId == request.auth.uid ||
         isAdmin());
-      allow create: if isSignedIn() &&
-        request.resource.data.studentId == request.auth.uid &&
-        request.resource.data.actor == 'student' &&
-        ownsSession(request.resource.data.sessionId);
-      allow update, delete: if false;
+      allow write: if false;
     }
 
     // studentAttempts
