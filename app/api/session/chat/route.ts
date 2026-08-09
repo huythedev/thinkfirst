@@ -118,14 +118,10 @@ function nextTranscriptSequence(turns: TranscriptTurn[]): number {
 }
 
 /**
- * The browser normally persists the student turn before calling this endpoint.
- * The route used to load that turn and then append the request message again,
- * making classifier/evaluator context contain the current message twice.
- *
- * Strip that last matching persisted turn from *history* while retaining it in
- * the complete transcript for sequence accounting. If a direct API client did
- * not persist the turn, the server records it under the authenticated uid so the
- * transcript and scoring evidence cannot silently omit the message being judged.
+ * `sessionTurns` are now server-authored. The legacy matching branch is retained
+ * only so an in-flight request from the immediately previous client contract is
+ * not duplicated during rollout; Firestore rules prevent new clients from
+ * creating such turns directly.
  */
 async function normalizeTranscriptForRequest(input: {
   sessionId: string;
@@ -156,7 +152,7 @@ async function normalizeTranscriptForRequest(input: {
     actor: 'student',
     content: input.message,
     createdAt: FieldValue.serverTimestamp(),
-    serverRecoveredMissingClientTurn: true,
+    serverAuthored: true,
   });
 
   const currentTurn: TranscriptTurn = {
@@ -171,11 +167,13 @@ async function normalizeTranscriptForRequest(input: {
   };
 }
 
+function previousAssistantTurn(priorTranscript: TranscriptTurn[]): TranscriptTurn | undefined {
+  return [...priorTranscript].reverse().find((turn) => turn.actor === 'assistant');
+}
+
 /** Evidence type belongs to the task already delivered before this message. */
 function deliveredAttemptType(priorTranscript: TranscriptTurn[]): AttemptType {
-  const previousAssistant = [...priorTranscript]
-    .reverse()
-    .find((turn) => turn.actor === 'assistant');
+  const previousAssistant = previousAssistantTurn(priorTranscript);
 
   if (previousAssistant?.tutorMetadata?.responseType === 'transfer_problem') {
     return 'transfer';
@@ -192,6 +190,12 @@ function deliveredAttemptType(priorTranscript: TranscriptTurn[]): AttemptType {
 
   const previousStudentTurns = priorTranscript.filter((turn) => turn.actor === 'student').length;
   return previousStudentTurns === 0 ? 'initial' : 'intermediate';
+}
+
+/** The evaluator must judge the objective already assigned, never the new future plan. */
+function deliveredLearningObjective(priorTranscript: TranscriptTurn[]): string | null {
+  const objective = previousAssistantTurn(priorTranscript)?.responsePlan?.learningObjective;
+  return typeof objective === 'string' && objective.trim().length > 0 ? objective : null;
 }
 
 function deliveredTransferHintDelta(
@@ -446,50 +450,51 @@ Dedicated transfer generator: ${responsePlan.generateTransferProblem ? 'enabled;
     const persistedHintLevel = nextHintLevel(policy.currentHintLevel, responsePlan.allowedHintLevel);
     const latencyMs = Date.now() - startedAt;
     const turnRef = adminDb.collection('sessionTurns').doc();
+    const sessionRef = adminDb.collection('learningSessions').doc(sessionId);
+    const batch = adminDb.batch();
 
-    await Promise.all([
-      turnRef.set({
-        id: turnRef.id,
-        sessionId,
-        studentId: auth.uid,
-        sequence: assistantSequence,
-        actor: 'assistant',
-        content: tutorData.messageMarkdown,
-        createdAt: FieldValue.serverTimestamp(),
-        intentAnalysis: intentData,
-        responsePlan,
-        tutorMetadata: {
-          hintLevel: tutorData.hintLevel,
-          finalAnswerIncluded: tutorData.finalAnswerIncluded,
-          responseType: tutorData.responseType,
-          studentActionRequired: tutorData.studentActionRequired ?? null,
-          modelName: modelNameFor(tutorModel),
-          classifierModel: modelNameFor(classifierModel),
-          promptVersion: TUTOR_PROMPT_VERSION,
-          classifierPromptVersion: CLASSIFIER_PROMPT_VERSION,
-          latencyMs,
-          confidence: intentData.confidence,
-          checkForUnderstanding: tutorData.checkForUnderstanding ?? null,
-          learningObjective: tutorData.learningObjective ?? null,
-          internalConceptTags: tutorData.internalConceptTags ?? [],
-          planViolations: enforcement.violations,
-          modelOutputRevalidated: true,
-          classifierSemanticValidation: semanticMetadata(classifierValidation),
-          semanticValidation: semanticMetadata(tutorValidation),
-          generationConfig: {
-            responseMimeType: 'application/json',
-          },
+    batch.set(turnRef, {
+      id: turnRef.id,
+      sessionId,
+      studentId: auth.uid,
+      sequence: assistantSequence,
+      actor: 'assistant',
+      content: tutorData.messageMarkdown,
+      createdAt: FieldValue.serverTimestamp(),
+      intentAnalysis: intentData,
+      responsePlan,
+      tutorMetadata: {
+        hintLevel: tutorData.hintLevel,
+        finalAnswerIncluded: tutorData.finalAnswerIncluded,
+        responseType: tutorData.responseType,
+        studentActionRequired: tutorData.studentActionRequired ?? null,
+        modelName: modelNameFor(tutorModel),
+        classifierModel: modelNameFor(classifierModel),
+        promptVersion: TUTOR_PROMPT_VERSION,
+        classifierPromptVersion: CLASSIFIER_PROMPT_VERSION,
+        latencyMs,
+        confidence: intentData.confidence,
+        checkForUnderstanding: tutorData.checkForUnderstanding ?? null,
+        learningObjective: tutorData.learningObjective ?? null,
+        internalConceptTags: tutorData.internalConceptTags ?? [],
+        planViolations: enforcement.violations,
+        modelOutputRevalidated: true,
+        classifierSemanticValidation: semanticMetadata(classifierValidation),
+        semanticValidation: semanticMetadata(tutorValidation),
+        generationConfig: {
+          responseMimeType: 'application/json',
         },
-        safetyMetadata: {
-          category: intentData.safetyCategory,
-          action: responsePlan.action,
-        },
-      }),
-      adminDb.collection('learningSessions').doc(sessionId).update({
-        currentHintLevel: persistedHintLevel,
-        updatedAt: FieldValue.serverTimestamp(),
-      }),
-    ]);
+      },
+      safetyMetadata: {
+        category: intentData.safetyCategory,
+        action: responsePlan.action,
+      },
+    });
+    batch.update(sessionRef, {
+      currentHintLevel: persistedHintLevel,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    await batch.commit();
 
     const evidence = await recordLearningEvidence({
       sessionId,
@@ -702,7 +707,7 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
     const transcript = input.conversationHistory + `\nStudent: ${input.message}`;
     const evaluation = await evaluateAttempt({
       problem: input.policy.originalProblem,
-      learningObjective: input.responsePlan.learningObjective,
+      learningObjective: deliveredLearningObjective(input.priorTranscript),
       transcript,
       studentMessage: input.message,
       grade: input.policy.grade,
