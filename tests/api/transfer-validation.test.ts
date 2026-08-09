@@ -47,6 +47,22 @@ describe('transfer validator output', () => {
     if (parsed.ok) expect(isTransferValidationApproved(parsed.value)).toBe(false);
   });
 
+  it('fails closed when an approval also proposes a corrected answer', () => {
+    const parsed = parseTransferValidation(
+      JSON.stringify({ ...approved, correctedAnswer: '42' }),
+    );
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(isTransferValidationApproved(parsed.value)).toBe(false);
+  });
+
+  it('fails closed when an approval still reports issues', () => {
+    const parsed = parseTransferValidation(
+      JSON.stringify({ ...approved, issues: ['The wording is still ambiguous.'] }),
+    );
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(isTransferValidationApproved(parsed.value)).toBe(false);
+  });
+
   it('accepts JSON wrapped in one markdown code fence', () => {
     const parsed = parseTransferValidation(`\`\`\`json\n${JSON.stringify(approved)}\n\`\`\``);
     expect(parsed.ok).toBe(true);
