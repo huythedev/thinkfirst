@@ -124,9 +124,6 @@ function planFromContext(systemInstruction: string): {
 function tutorResponse(systemInstruction: string, message: string): Record<string, unknown> {
   const plan = planFromContext(systemInstruction);
 
-  // An explicit escape hatch for enforcement tests: a student message
-  // containing this marker makes the mock attempt to exceed its plan, so the
-  // real `enforceResponsePlan` can be observed doing its job end to end.
   if (message.includes('__FORCE_PLAN_VIOLATION__')) {
     return {
       messageMarkdown: 'The final answer is x = 2 or x = 3.',
@@ -314,19 +311,19 @@ const TRANSFER_VALIDATION = {
 
 const EXTRACTION = {
   extractedText: 'Solve $3x + 7 = 22$',
+  containsProblem: true,
   confidence: 0.95,
   detectedLanguage: 'en',
-  containsDiagram: false,
-  containsHandwriting: false,
-  qualityWarning: null,
-  requiresConfirmation: false,
+  subject: 'mathematics',
+  extractionWarnings: [],
+  containsStudentWork: false,
+  containsPersonalInformation: false,
 };
 
 /**
  * Routes a request to the right canned payload by identifying the prompt.
- *
- * Matching is on distinctive prompt text rather than on the model name, because
- * every call in this application can be configured to the same model.
+ * Matching is on prompt text rather than model name because every application
+ * role may intentionally use the same Gemini model.
  */
 export async function deterministicModelHandler(
   request: GenerateContentRequest,
