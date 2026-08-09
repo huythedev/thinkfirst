@@ -10,12 +10,6 @@ import { GoogleGenAI } from '@google/genai';
  * files, so nothing could substitute a deterministic client without monkey
  * patching the package.
  *
- * That absence had a concrete cost. Section 37 asks for an evaluation dataset of
- * at least 100 cases, and section 38 for six end-to-end scenarios. A tutoring
- * turn makes up to four model calls, and the free tier allows twenty requests a
- * day, so neither requirement could ever have been executed against the live
- * service on this budget.
- *
  * The switch is deliberately narrow and deliberately loud:
  *
  * - It is off unless `AI_MODEL_DRIVER=mock` is set explicitly. There is no
@@ -37,25 +31,48 @@ const DRIVER_ENV = 'AI_MODEL_DRIVER';
 /** Stable default used by every configured Gemini role unless explicitly overridden. */
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash';
 
-const GEMINI_MODEL_ENV_VARS = [
-  'GEMINI_TUTOR_MODEL',
-  'GEMINI_CLASSIFIER_MODEL',
-  'GEMINI_VALIDATOR_MODEL',
-  'GEMINI_EVALUATOR_MODEL',
-  'GEMINI_TRANSFER_MODEL',
-  'GEMINI_EXTRACTION_MODEL',
-] as const;
+export type GeminiModelRole =
+  | 'tutor'
+  | 'classifier'
+  | 'validator'
+  | 'evaluator'
+  | 'transfer'
+  | 'extraction';
+
+const GEMINI_MODEL_ENV_BY_ROLE: Record<GeminiModelRole, string> = {
+  tutor: 'GEMINI_TUTOR_MODEL',
+  classifier: 'GEMINI_CLASSIFIER_MODEL',
+  validator: 'GEMINI_VALIDATOR_MODEL',
+  evaluator: 'GEMINI_EVALUATOR_MODEL',
+  transfer: 'GEMINI_TRANSFER_MODEL',
+  extraction: 'GEMINI_EXTRACTION_MODEL',
+};
+
+const GEMINI_MODEL_ENV_VARS = Object.values(GEMINI_MODEL_ENV_BY_ROLE);
 
 /**
- * Populate missing/blank model overrides once at module load. Call sites still
- * read their role-specific env var, so an explicit Cloud Run or local override
- * wins, while an omitted variable can no longer fall through to an older model
- * hardcoded elsewhere in the application.
+ * Populate missing/blank model overrides once at module load. Explicit Cloud Run
+ * or local overrides win; omitted variables use the one documented stable
+ * default instead of falling through to role-specific historical literals.
  */
 export function applyDefaultGeminiModelEnv(env: NodeJS.ProcessEnv = process.env): void {
   for (const variable of GEMINI_MODEL_ENV_VARS) {
     if (!env[variable]?.trim()) env[variable] = DEFAULT_GEMINI_MODEL;
   }
+}
+
+/**
+ * Resolve a role model from one source of truth. Call sites must use this helper
+ * rather than embedding their own fallback model names; otherwise a stale literal
+ * can silently reappear when module initialization or deployment configuration
+ * changes.
+ */
+export function configuredGeminiModel(
+  role: GeminiModelRole,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const variable = GEMINI_MODEL_ENV_BY_ROLE[role];
+  return env[variable]?.trim() || DEFAULT_GEMINI_MODEL;
 }
 
 applyDefaultGeminiModelEnv();
