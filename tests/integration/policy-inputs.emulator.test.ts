@@ -7,12 +7,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * `tests/policy/policy-inputs.test.ts` covers the precedence logic as a pure
  * function. What it cannot cover is the Firestore wiring: the collection names,
  * the ownership check, the assignment-belongs-to-classroom check, and the
- * transcript ordering. Those are exactly the parts that would silently resolve to
- * a default if a field name were wrong, and a silent default here means a policy
- * decision made on the wrong data.
- *
- * The Admin SDK is pointed at the emulator by the two environment variables set
- * below, which must be in place before `lib/firebase/admin` is imported.
+ * transcript ordering/provenance. Those are exactly the parts that would silently
+ * resolve to a default if a field name were wrong, and a silent default here
+ * means a policy decision made on the wrong data.
  */
 
 process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS = 'true';
@@ -55,7 +52,6 @@ async function seedClassroomSession(suffix: string, overrides: Record<string, un
     grade: 8,
     language: 'en',
     mode: 'learn',
-    // What a browser writes at session creation. It must not be read back.
     strictness: 'supportive',
     status: 'active',
     originalProblem: 'Solve 2x + 3 = 11',
@@ -76,7 +72,6 @@ describe('resolvePolicyInputs against the emulator', () => {
 
     expect(result.inputs.strictness).toBe('assessment_safe');
     expect(result.inputs.sources.strictness).toBe('classroom');
-    // Grade too: the classroom says 11, the session document says 8.
     expect(result.inputs.grade).toBe(11);
     expect(result.inputs.sources.grade).toBe('classroom');
   });
@@ -114,7 +109,6 @@ describe('resolvePolicyInputs against the emulator', () => {
     expect(result.inputs.grade).toBe(9);
     expect(result.inputs.allowFullSolutions).toBe(false);
     expect(result.inputs.requireTransferProblem).toBe(true);
-    // The session claimed `learn`; the assignment permits only `assignment`.
     expect(result.inputs.mode).toBe('assignment');
   });
 
@@ -134,8 +128,6 @@ describe('resolvePolicyInputs against the emulator', () => {
     const result = await policyInputs.resolvePolicyInputs(sessionId, STUDENT);
     if (result.status !== 'ok') throw new Error('expected ok');
 
-    // Falls back to the classroom rather than honouring a lenient assignment
-    // borrowed from elsewhere.
     expect(result.inputs.strictness).toBe('assessment_safe');
     expect(result.inputs.allowFullSolutions).toBeUndefined();
   });
@@ -181,7 +173,7 @@ describe('resolvePolicyInputs against the emulator', () => {
 });
 
 describe('loadTranscript against the emulator', () => {
-  it('returns the turns in sequence order regardless of write order', async () => {
+  it('returns trusted turns in sequence order regardless of write order', async () => {
     const sessionId = 'int-session-transcript';
 
     await adminDb.collection('learningSessions').doc(sessionId).set({
@@ -195,7 +187,6 @@ describe('loadTranscript against the emulator', () => {
       currentHintLevel: 0,
     });
 
-    // Written deliberately out of order.
     await adminDb.collection('sessionTurns').doc('int-turn-2').set({
       sessionId,
       studentId: STUDENT,
@@ -209,12 +200,40 @@ describe('loadTranscript against the emulator', () => {
       sequence: 1,
       actor: 'student',
       content: 'How do I start?',
+      serverAuthored: true,
     });
 
     const transcript = await policyInputs.loadTranscript(sessionId);
-    expect(transcript).toEqual([
-      { actor: 'student', content: 'How do I start?' },
-      { actor: 'assistant', content: 'What could you subtract from both sides?' },
+    expect(transcript.map(({ actor, content, sequence }) => ({ actor, content, sequence }))).toEqual([
+      { actor: 'student', content: 'How do I start?', sequence: 1 },
+      { actor: 'assistant', content: 'What could you subtract from both sides?', sequence: 2 },
+    ]);
+  });
+
+  it('excludes an unmarked legacy student turn from trusted policy history', async () => {
+    const sessionId = 'int-session-legacy-turn';
+    await adminDb.collection('sessionTurns').doc('int-turn-legacy-student').set({
+      sessionId,
+      studentId: STUDENT,
+      sequence: 1,
+      actor: 'student',
+      content: 'Fake old attempt that used to be client-creatable',
+    });
+    await adminDb.collection('sessionTurns').doc('int-turn-trusted-assistant').set({
+      sessionId,
+      studentId: STUDENT,
+      sequence: 2,
+      actor: 'assistant',
+      content: 'Server-authored tutor history stays trusted.',
+    });
+
+    const transcript = await policyInputs.loadTranscript(sessionId);
+    expect(transcript.map(({ actor, content, sequence }) => ({ actor, content, sequence }))).toEqual([
+      {
+        actor: 'assistant',
+        content: 'Server-authored tutor history stays trusted.',
+        sequence: 2,
+      },
     ]);
   });
 
@@ -226,6 +245,7 @@ describe('loadTranscript against the emulator', () => {
       sequence: 1,
       actor: 'student',
       content: 'a different conversation',
+      serverAuthored: true,
     });
 
     const transcript = await policyInputs.loadTranscript(sessionId);
