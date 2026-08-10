@@ -222,7 +222,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. Generate the tutor response inside those constraints.
-    const tutorModel = process.env.GEMINI_TUTOR_MODEL || 'gemini-2.5-pro';
+    const tutorModel = process.env.GEMINI_TUTOR_MODEL || 'gemini-3.6-flash';
 
     const tutorSystemContext = `Grade: ${policy.grade}
 Language: ${policy.language}

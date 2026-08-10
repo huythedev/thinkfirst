@@ -36,10 +36,10 @@ describe('model driver selection', () => {
   });
 
   it('marks a mock-produced turn so stored data does not overstate its provenance', () => {
-    expect(modelNameFor('gemini-2.5-pro', env({ AI_MODEL_DRIVER: 'mock' }))).toBe(
-      'mock:gemini-2.5-pro',
+    expect(modelNameFor('gemini-3.6-flash', env({ AI_MODEL_DRIVER: 'mock' }))).toBe(
+      'mock:gemini-3.6-flash',
     );
-    expect(modelNameFor('gemini-2.5-pro', env({}))).toBe('gemini-2.5-pro');
+    expect(modelNameFor('gemini-3.6-flash', env({}))).toBe('gemini-3.6-flash');
   });
 });
 

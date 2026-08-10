@@ -58,7 +58,7 @@ export async function extractProblemFromImage(
   format: ImageFormat,
   context?: { grade?: number; language?: 'en' | 'vi' },
 ): Promise<ExtractionResult> {
-  const modelName = process.env.GEMINI_EXTRACTION_MODEL || 'gemini-2.5-pro';
+  const modelName = process.env.GEMINI_EXTRACTION_MODEL || 'gemini-3.6-flash';
   const startedAt = Date.now();
 
   const hint =
