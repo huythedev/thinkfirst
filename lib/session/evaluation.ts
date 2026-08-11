@@ -198,7 +198,7 @@ export async function generateTransferProblem(context: {
   grade: number;
   conceptTags: string[];
 }): Promise<{ problem: TransferProblem; validated: boolean; modelName: string } | null> {
-  const modelName = process.env.GEMINI_TRANSFER_MODEL || 'gemini-3.6-flash';
+  const modelName = process.env.GEMINI_TRANSFER_MODEL || 'gemini-2.5-pro';
 
   const prompt =
     `Completed problem: ${context.problem}\n` +

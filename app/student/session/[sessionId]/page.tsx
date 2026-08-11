@@ -27,6 +27,7 @@ export default function LearningWorkspace() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [mobilePanel, setMobilePanel] = useState<'problem' | 'chat' | 'scratchpad'>('chat');
+  const [transferProblem, setTransferProblem] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Recomputed from the streaming turns, so it moves as the student works.
@@ -72,6 +73,15 @@ export default function LearningWorkspace() {
         setLoadError('We could not load this conversation.');
       },
     );
+
+    fetch(`/api/session/${sessionId}/transfer`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.transferProblem) {
+          setTransferProblem(data.transferProblem);
+        }
+      })
+      .catch(err => console.error('Failed to load pending transfer', err));
 
     return () => {
       unsubscribeSession();
@@ -139,7 +149,13 @@ export default function LearningWorkspace() {
       // (`responsePlan`, `rationaleCode`, `allowedHintLevel`), which section 41.1
       // lists among the values a client must never author. `currentHintLevel`
       // reaches the UI the same way.
-      await res.json();
+      const data = await res.json();
+      
+      if (data.evidence?.transferEvaluated) {
+        setTransferProblem(null);
+      } else if (data.evidence?.transferProblem) {
+        setTransferProblem(data.evidence.transferProblem);
+      }
 
     } catch (err) {
       console.error(err);
@@ -267,6 +283,20 @@ export default function LearningWorkspace() {
           </div>
           <div className="p-6 overflow-y-auto font-mono text-foreground whitespace-pre-wrap flex-1">
             {session.originalProblem}
+            {transferProblem && (
+              <div className="mt-6 pt-6 border-t border-dashed border-border text-blue-900 bg-blue-50/50 -mx-6 px-6 -mb-6 pb-6 rounded-b-2xl">
+                <h3 className="font-bold text-blue-800 mb-2 flex items-center gap-2">
+                  <span className="text-xl">💡</span> Independent Practice
+                </h3>
+                <p className="text-sm text-blue-700/80 mb-4 font-sans">
+                  Apply what you just learned to solve this new problem independently. 
+                  Send your answer when you&apos;re ready.
+                </p>
+                <div className="bg-white/80 border border-blue-200 rounded-xl p-4 font-sans text-blue-950">
+                  <TutorMarkdown>{transferProblem.problemMarkdown}</TutorMarkdown>
+                </div>
+              </div>
+            )}
           </div>
           {typeof session.imageId === 'string' && session.imageId.length > 0 && (
             <SessionProblemImage imageId={session.imageId} />

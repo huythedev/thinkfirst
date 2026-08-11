@@ -60,6 +60,8 @@ export interface ResolvedPolicyInputs {
   /** True when the student has confirmed the extracted text (section 34 step 10). */
   extractionConfirmed?: boolean;
   imageId?: string;
+  /** The trusted server-side reference answer, typically from an assignment. */
+  referenceAnswer?: string;
   /** Where each contested value came from, for the audit trail and for tests. */
   sources: {
     strictness: PolicySource;
@@ -199,6 +201,8 @@ export function resolvePolicyFromDocuments(
         ? sessionProblem
         : extractedText;
 
+  const referenceAnswer = typeof assignment?.referenceAnswer === 'string' ? assignment.referenceAnswer : undefined;
+
   return {
     sessionId,
     studentId: uid,
@@ -223,6 +227,7 @@ export function resolvePolicyFromDocuments(
     extractionConfidence,
     extractionConfirmed,
     imageId: image ? (typeof image.id === 'string' ? image.id : undefined) : undefined,
+    referenceAnswer,
     sources: {
       strictness: strictnessSource,
       mode: modeSource,

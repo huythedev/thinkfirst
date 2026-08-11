@@ -217,10 +217,52 @@ describe('enforceResponsePlan', () => {
     });
     const result = enforceResponsePlan(
       solution,
-      plan({ allowedHintLevel: 7, mayRevealFinalAnswer: true, generateTransferProblem: true }),
+      plan({
+        action: 'provide_full_solution',
+        allowedHintLevel: 7,
+        mayRevealFinalAnswer: true,
+        generateTransferProblem: true,
+      }),
     );
     expect(result.violations).toEqual([]);
     expect(result.response.messageMarkdown).toContain('x = 4');
+  });
+
+  it('withholds a premature solution when mayRevealFinalAnswer is true but plan is not for a full solution (Case A)', () => {
+    const prematureSolution = response({
+      responseType: 'solution',
+      hintLevel: 1,
+      finalAnswerIncluded: true,
+      messageMarkdown: 'The answer is x = 4.',
+    });
+    const result = enforceResponsePlan(
+      prematureSolution,
+      plan({ action: 'provide_hint', allowedHintLevel: 1, mayRevealFinalAnswer: true }),
+    );
+
+    expect(result.violations).toContain('final_answer_forbidden');
+    expect(result.violations).toContain('solution_type_forbidden');
+    expect(result.messageWithheld).toBe(true);
+    expect(result.response.finalAnswerIncluded).toBe(false);
+    expect(result.response.messageMarkdown).not.toContain('x = 4');
+  });
+
+  it('withholds a final answer falsely labelled as a hint when plan is not for a full solution (Case B)', () => {
+    const falselyLabelled = response({
+      responseType: 'hint',
+      hintLevel: 1,
+      finalAnswerIncluded: true,
+      messageMarkdown: 'The answer is x = 4.',
+    });
+    const result = enforceResponsePlan(
+      falselyLabelled,
+      plan({ action: 'provide_hint', allowedHintLevel: 1, mayRevealFinalAnswer: true }),
+    );
+
+    expect(result.violations).toContain('final_answer_forbidden');
+    expect(result.messageWithheld).toBe(true);
+    expect(result.response.finalAnswerIncluded).toBe(false);
+    expect(result.response.messageMarkdown).not.toContain('x = 4');
   });
 
   it('relabels an unrequested transfer problem without withholding it', () => {

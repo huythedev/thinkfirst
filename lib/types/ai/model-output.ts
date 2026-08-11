@@ -352,7 +352,8 @@ export type PlanViolation =
   | 'hint_level_above_plan'
   | 'final_answer_forbidden'
   | 'solution_type_forbidden'
-  | 'transfer_problem_not_requested';
+  | 'transfer_problem_not_requested'
+  | 'semantic_final_answer_leak';
 
 export interface EnforcementResult {
   response: TutorResponse;
@@ -389,20 +390,29 @@ export function enforceResponsePlan(
   response: TutorResponse,
   plan: TutorResponsePlan,
   language: 'en' | 'vi' = 'en',
+  semanticLeak: boolean = false,
 ): EnforcementResult {
   const violations: PlanViolation[] = [];
+
+  const fullSolutionAllowedThisTurn =
+    plan.action === 'provide_full_solution' &&
+    plan.allowedHintLevel === 7 &&
+    plan.mayRevealFinalAnswer;
 
   if (response.hintLevel > plan.allowedHintLevel) {
     violations.push('hint_level_above_plan');
   }
-  if (response.finalAnswerIncluded && !plan.mayRevealFinalAnswer) {
+  if (response.finalAnswerIncluded && !fullSolutionAllowedThisTurn) {
     violations.push('final_answer_forbidden');
   }
-  if (response.responseType === 'solution' && !plan.mayRevealFinalAnswer) {
+  if (response.responseType === 'solution' && !fullSolutionAllowedThisTurn) {
     violations.push('solution_type_forbidden');
   }
   if (response.responseType === 'transfer_problem' && !plan.generateTransferProblem) {
     violations.push('transfer_problem_not_requested');
+  }
+  if (semanticLeak && !fullSolutionAllowedThisTurn) {
+    violations.push('semantic_final_answer_leak');
   }
 
   if (violations.length === 0) {

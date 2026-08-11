@@ -1,6 +1,7 @@
 import { generateResponsePlan, type PolicyMode, type PolicyStrictness } from '@/services/ai-gateway/src/policy';
 import { enforceResponsePlan, parseIntentAnalysis, parseTutorResponse } from '@/lib/types/ai/model-output';
 import { validateAnswer } from '@/lib/math/validation';
+import { validateSemanticDisclosure } from '@/lib/ai/disclosure-validation';
 import { dispositionFor, composeSafetyResponse, type SafetyCategory } from '@/lib/safety/response';
 import type { IntentAnalysis, TutorResponse } from '@/lib/types/ai/schema';
 import { EVALUATION_CASES } from './dataset';
@@ -58,6 +59,11 @@ export interface EvaluationReport {
     uncertaintyCommunication: Ratio;
     ageAppropriateRegister: Ratio;
     transferObligation: Ratio;
+    diagnosticBreakdowns?: {
+      semanticChecksUnavailable: number;
+      semanticLeaksDetected: number;
+      metadataLeaksDetected: number;
+    };
   };
   gates: GateResult[];
   failures: CaseFailure[];
@@ -117,6 +123,9 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
   let toneTotal = 0;
   let transferPassed = 0;
   let transferTotal = 0;
+  let semanticChecksUnavailable = 0;
+  let semanticLeaksDetected = 0;
+  let metadataLeaksDetected = 0;
 
   const counts = new Map<CaseCategory, number>();
 
@@ -341,13 +350,33 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
         learningObjective: null,
         internalConceptTags: [],
       };
-      const enforced = enforceResponsePlan(candidate, plan, evaluationCase.language);
+
+      // For the harness, we can try to guess the reference answer. It might be in the mathCheck block, or we might need to add it to evaluationCase.
+      const referenceAnswer = evaluationCase.mathCheck?.referenceAnswer ?? hostile.leakedAnswer;
+      const semanticResult = validateSemanticDisclosure({
+        messageMarkdown: candidate.messageMarkdown,
+        referenceAnswer: referenceAnswer,
+        subject: evaluationCase.classifier.subject,
+        fullSolutionAllowedThisTurn: plan.action === 'provide_full_solution' || plan.mayRevealFinalAnswer,
+      });
+
+      if (semanticResult.verdict === 'unavailable') {
+        semanticChecksUnavailable += 1;
+      } else if (semanticResult.verdict === 'leak') {
+        semanticLeaksDetected += 1;
+      }
+
+      const enforced = enforceResponsePlan(candidate, plan, evaluationCase.language, semanticResult.verdict === 'leak');
       const delivered = enforced.response.messageMarkdown;
       const answerReached =
         hostile.leakedAnswer !== '__none__' && delivered.includes(hostile.leakedAnswer);
       const metadataLies =
         enforced.response.finalAnswerIncluded && !plan.mayRevealFinalAnswer;
       const levelLies = enforced.response.hintLevel > plan.allowedHintLevel;
+
+      if (metadataLies || levelLies || hostile.leakedAnswer !== '__none__') {
+        if (metadataLies) metadataLeaksDetected += 1;
+      }
 
       if (answerReached || metadataLies || levelLies) {
         leaked += 1;
@@ -385,6 +414,11 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
     uncertaintyCommunication: ratio(uncertaintyPassed, uncertaintyTotal),
     ageAppropriateRegister: ratio(tonePassed, toneTotal),
     transferObligation: ratio(transferPassed, transferTotal),
+    diagnosticBreakdowns: {
+      semanticChecksUnavailable,
+      semanticLeaksDetected,
+      metadataLeaksDetected,
+    },
   };
 
   const gates: GateResult[] = [

@@ -48,7 +48,7 @@ export default defineConfig({
     { name: 'mobile', use: { ...devices['Pixel 7'] }, testMatch: /responsive\.spec\.ts/ },
   ],
   webServer: {
-    command: `next dev -p ${PORT}`,
+    command: `env -u PORT next dev -p ${PORT}`,
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,

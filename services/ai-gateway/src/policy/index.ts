@@ -47,6 +47,7 @@ export interface PolicyInput {
   /** From `assignments/{id}`. Undefined means no assignment governs this session. */
   allowFullSolutions?: boolean;
   requireTransferProblem?: boolean;
+  hasPendingTransferProblem?: boolean;
   /**
    * Confidence of image-to-text extraction, when the problem came from an image.
    * Undefined means the problem was typed, which is the only path today (R6).
@@ -314,6 +315,10 @@ export function generateResponsePlan(
     if (rationaleCode !== 'FULL_SOLUTION_AFTER_ENGAGEMENT') {
       rationaleCode = 'TRANSFER_REQUIRED';
     }
+  }
+
+  if (sessionConfig.hasPendingTransferProblem) {
+    generateTransferProblem = false;
   }
 
   // R9. Low confidence must be communicated and verification suggested. It does

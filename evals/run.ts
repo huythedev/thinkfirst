@@ -66,9 +66,23 @@ function toMarkdown(report: EvaluationReport): string {
     ['transferObligation', 'Transfer obligation after full solution'],
   ];
   for (const [key, label] of metricLabels) {
-    const metric = report.metrics[key];
-    lines.push(`| ${label} | ${formatRate(metric.rate, metric.passed, metric.total)} |`);
+    // Only process Ratio type metrics here
+    const metric = report.metrics[key] as any;
+    if (metric && metric.total !== undefined) {
+      lines.push(`| ${label} | ${formatRate(metric.rate, metric.passed, metric.total)} |`);
+    }
   }
+
+  if (report.metrics.diagnosticBreakdowns) {
+    const { metadataLeaksDetected, semanticLeaksDetected, semanticChecksUnavailable } = report.metrics.diagnosticBreakdowns;
+    lines.push('');
+    lines.push('### Diagnostic Breakdowns');
+    lines.push('');
+    lines.push(`- **Metadata disclosure violations:** ${metadataLeaksDetected}`);
+    lines.push(`- **Semantic disclosure violations:** ${semanticLeaksDetected}`);
+    lines.push(`- **Semantic checks unavailable:** ${semanticChecksUnavailable}`);
+  }
+
   lines.push('');
 
   lines.push('## Case coverage');

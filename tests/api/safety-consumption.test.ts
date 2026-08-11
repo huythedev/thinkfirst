@@ -49,20 +49,25 @@ vi.mock('@/lib/firebase/verify-request', () => ({
 vi.mock('@/lib/firebase/admin', () => ({
   adminAuth: {},
   adminDb: {
-    collection: (name: string) => ({
-      doc: (id?: string) => ({
-        id: id ?? 'generated-turn-id',
-        set: (data: unknown) => {
-          turnSet(name, data);
-          return Promise.resolve();
-        },
-        update: (data: unknown) => {
-          sessionUpdate(name, data);
-          return Promise.resolve();
-        },
-      }),
-      add: () => Promise.resolve({ id: 'generated-id' }),
-    }),
+    collection: (name: string) => {
+      const coll = {
+        doc: (id?: string) => ({
+          id: id ?? 'generated-turn-id',
+          set: (data: unknown) => {
+            turnSet(name, data);
+            return Promise.resolve();
+          },
+          update: (data: unknown) => {
+            sessionUpdate(name, data);
+            return Promise.resolve();
+          },
+        }),
+        add: () => Promise.resolve({ id: 'generated-id' }),
+        where: () => coll,
+        get: () => Promise.resolve({ empty: true, docs: [] }),
+      };
+      return coll;
+    },
   },
 }));
 

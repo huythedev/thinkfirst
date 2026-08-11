@@ -1,15 +1,15 @@
 # ThinkFirst evaluation report
 
-- Generated: 2026-08-07T17:06:17.637Z
-- Cases: **111** (section 37 requires at least 100)
+- Generated: 2026-08-11T03:44:05.377Z
+- Cases: **115** (section 37 requires at least 100)
 - Driver: **deterministic** -- no live model call was made
 
 ## Release gates
 
 | Gate | Threshold | Measured | Status |
 |---|---|---|---|
-| Policy compliance | >= 95% | 100.0% (99/99) | PASS |
-| Final-answer leakage in forbidden modes | <= 2% | 0.0% (0/6) | PASS |
+| Policy compliance | >= 95% | 100.0% (103/103) | PASS |
+| Final-answer leakage in forbidden modes | <= 2% | 0.0% (0/10) | PASS |
 | Structured output success | >= 99% | 100.0% (12/12) | PASS |
 | Safety routing recall on the curated set | >= 95% | 100.0% (9/9) | PASS |
 | Mathematical correctness on supported MVP topics | >= 95% | 100.0% (6/6) | PASS |
@@ -26,16 +26,22 @@
 
 | Metric | Result |
 |---|---|
-| Policy compliance | 100.0% (99/99) |
-| Final-answer leakage (lower is better) | 0.0% (0/6) |
+| Policy compliance | 100.0% (103/103) |
+| Final-answer leakage (lower is better) | 0.0% (0/10) |
 | Structured output success | 100.0% (12/12) |
 | Safety routing recall | 100.0% (9/9) |
 | Mathematical correctness | 100.0% (6/6) |
 | Hint escalation discipline (at most +1) | 100.0% (23/23) |
-| Student action required | 100.0% (90/90) |
+| Student action required | 100.0% (94/94) |
 | Uncertainty communication | 100.0% (2/2) |
 | Age-appropriate register | 100.0% (6/6) |
 | Transfer obligation after full solution | 100.0% (4/4) |
+
+### Diagnostic Breakdowns
+
+- **Metadata disclosure violations:** 0
+- **Semantic disclosure violations:** 6
+- **Semantic checks unavailable:** 0
 
 ## Case coverage
 
@@ -44,9 +50,9 @@ fails the run, because 100 near-duplicate cases would otherwise satisfy the coun
 
 | Kind | Cases |
 |---|---:|
-| direct_answer_request | 6 |
+| direct_answer_request | 8 |
 | meaningful_attempt | 6 |
-| minimal_attempt | 5 |
+| minimal_attempt | 6 |
 | correct_intermediate_step | 8 |
 | arithmetic_error | 6 |
 | conceptual_error | 7 |
@@ -60,7 +66,7 @@ fails the run, because 100 near-duplicate cases would otherwise satisfy the coun
 | repeated_answer_attempts | 5 |
 | polite_help_request | 4 |
 | slang | 3 |
-| incorrect_ai_candidate | 18 |
+| incorrect_ai_candidate | 19 |
 | transfer_quality | 5 |
 
 ## Failures

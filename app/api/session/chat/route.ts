@@ -178,6 +178,8 @@ export async function POST(req: NextRequest) {
     }
     const intentData = intentParse.ok ? intentParse.value : SAFE_FALLBACK_INTENT;
 
+    const pendingTransfer = await loadPendingTransfer(sessionId);
+
     // 3. Apply the deterministic policy, on trusted inputs only.
     const responsePlan = generateResponsePlan(intentData, {
       mode: policy.mode,
@@ -187,6 +189,7 @@ export async function POST(req: NextRequest) {
       grade: policy.grade,
       allowFullSolutions: policy.allowFullSolutions,
       requireTransferProblem: policy.requireTransferProblem,
+      hasPendingTransferProblem: !!pendingTransfer,
       // R6. Supplied only once the student has *not* confirmed the extraction:
       // a confirmed problem is the student's own words and carries no residual
       // extraction risk, so the rule stands down rather than blocking the
@@ -222,7 +225,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. Generate the tutor response inside those constraints.
-    const tutorModel = process.env.GEMINI_TUTOR_MODEL || 'gemini-3.6-flash';
+    const tutorModel = process.env.GEMINI_TUTOR_MODEL || 'gemini-2.5-pro';
 
     const tutorSystemContext = `Grade: ${policy.grade}
 Language: ${policy.language}
@@ -257,7 +260,15 @@ Action: ${responsePlan.action}`;
       );
     }
 
-    const enforcement = enforceResponsePlan(tutorParse.value, responsePlan, policy.language);
+    const { validateSemanticDisclosure } = await import('@/lib/ai/disclosure-validation');
+    const semanticResult = validateSemanticDisclosure({
+      messageMarkdown: tutorParse.value.messageMarkdown,
+      referenceAnswer: policy.referenceAnswer ?? null,
+      subject: policy.subject,
+      fullSolutionAllowedThisTurn: responsePlan.action === 'provide_full_solution' || responsePlan.mayRevealFinalAnswer,
+    });
+
+    const enforcement = enforceResponsePlan(tutorParse.value, responsePlan, policy.language, semanticResult.verdict === 'leak');
     const tutorData: TutorResponse = enforcement.response;
 
     if (enforcement.violations.length > 0) {
@@ -307,6 +318,12 @@ Action: ${responsePlan.action}`;
           internalConceptTags: tutorData.internalConceptTags ?? [],
           planViolations: enforcement.violations,
           modelOutputRevalidated: true,
+          semanticDisclosure: {
+            verdict: semanticResult.verdict,
+            confidence: semanticResult.confidence,
+            reason: semanticResult.reason,
+            validatorVersion: 'disclosure-validator-v1',
+          },
         },
         safetyMetadata: {
           category: intentData.safetyCategory,
@@ -532,10 +549,18 @@ interface EvidenceInput {
 interface EvidenceSummary {
   attemptEvaluated: boolean;
   transferIssued: boolean;
+  transferEvaluated?: boolean;
   /** Present only when a score is not suppressed by §56.4. */
   score: number | null;
   coverage: number;
   suppressed: boolean;
+  transferProblem?: {
+    id: string;
+    problemMarkdown: string;
+    topic: string | null;
+    difficulty: string | null;
+    expectedConcepts: string[];
+  } | null;
 }
 
 /**
@@ -628,6 +653,7 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
         status: 'evaluated',
         evaluatedAt: FieldValue.serverTimestamp(),
       });
+      summary.transferEvaluated = true;
     }
 
     // A new transfer problem, when the plan calls for one. The reference answer is
@@ -660,6 +686,13 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
           createdAt: FieldValue.serverTimestamp(),
         });
         summary.transferIssued = true;
+        summary.transferProblem = {
+          id: ref.id,
+          problemMarkdown: generated.problem.problemMarkdown,
+          topic: generated.problem.topic,
+          difficulty: generated.problem.difficulty,
+          expectedConcepts: generated.problem.expectedConcepts,
+        };
       }
     }
   } catch (error) {
