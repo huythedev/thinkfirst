@@ -84,8 +84,8 @@ function classify(message: string): Record<string, unknown> {
   if (safetyCategory !== 'none') intent = 'unsafe';
   else if (includesAny(text, OFF_TOPIC)) intent = 'off_topic';
   else if (includesAny(text, VERIFY)) intent = 'verification';
-  else if (providedAttempt) intent = 'step_check';
   else if (includesAny(text, ANSWER_REQUEST)) intent = 'answer_request';
+  else if (providedAttempt) intent = 'step_check';
   else if (includesAny(text, CONCEPT)) intent = 'concept_explanation';
 
   return {
@@ -290,10 +290,11 @@ const EVALUATION = {
 const TRANSFER = {
   problemMarkdown: 'Solve x^2 - 7x + 12 = 0 without help.',
   topic: 'quadratic equations',
+  difficulty: 'similar',
+  expectedConcepts: ['factoring', 'zero-product'],
   internalAnswer: 'x = 3 or x = 4',
-  estimatedDifficulty: 'similar',
-  conceptsAssessed: ['factoring', 'zero-product'],
-  gradeLevel: 9,
+  internalSolutionSteps: ['Factor to (x-3)(x-4)=0', 'Set factors to zero', 'Solve for x'],
+  validationNotes: ['A standard quadratic solvable by factoring.'],
 };
 
 const EXTRACTION = {

@@ -588,48 +588,36 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
       input.conversationHistory + `\nStudent: ${input.message}` +
       `\nTutor: ${input.tutorData.messageMarkdown}`;
 
-    const evaluation = await evaluateAttempt({
-      problem: input.policy.originalProblem,
-      learningObjective: input.responsePlan.learningObjective,
-      transcript,
-      studentMessage: input.message,
-      grade: input.policy.grade,
-    });
-
-    // Which behavior this turn is evidence *of* decides which rubric is read back
-    // by `deriveSessionMetrics`, so the type is taken from the policy decision
-    // rather than guessed from the message text.
-    const attemptType =
-      input.responsePlan.action === 'start_verification_task' ||
-      input.responsePlan.requiresVerification
-        ? 'verification'
-        : input.responsePlan.requiresExplanation
-          ? 'explanation'
-          : input.transcriptTurns.length <= 1
-            ? 'initial'
-            : 'intermediate';
-
-    await recordAttemptEvaluation({
-      sessionId: input.sessionId,
-      studentId: input.studentId,
-      attemptText: input.message,
-      attemptType,
-      evaluation: evaluation.evaluation,
-      available: evaluation.available,
-      modelName: evaluation.modelName,
-    });
-    summary.attemptEvaluated = evaluation.available;
-
-    // A transfer task the student was already given is evaluated here, using the
-    // reference answer stored when it was generated. Correctness is established
-    // deterministically where possible; §56.2 allows nothing else to reach
-    // confidence 1.0.
     const pendingTransfer = await loadPendingTransfer(input.sessionId);
+
     if (pendingTransfer) {
+      const { validateAnswer } = await import('@/lib/math/validation');
+      const deterministic = validateAnswer(input.message, pendingTransfer.internalAnswer);
+      
+      let finalEvaluation = null;
+      let available = false;
+      let modelName = 'deterministic';
+      
+      if (deterministic.verdict === 'equivalent' || deterministic.verdict === 'not_equivalent') {
+        available = true;
+      } else {
+        const evaluation = await evaluateAttempt({
+          problem: pendingTransfer.problemMarkdown,
+          learningObjective: pendingTransfer.topic ?? input.responsePlan.learningObjective,
+          transcript,
+          studentMessage: input.message,
+          grade: input.policy.grade,
+        });
+        
+        finalEvaluation = evaluation.evaluation;
+        available = evaluation.available;
+        modelName = evaluation.modelName;
+      }
+
       const outcome = resolveTransferOutcome({
-        studentAnswer: evaluation.evaluation.extractedAnswer ?? input.message,
+        studentAnswer: finalEvaluation?.extractedAnswer ?? input.message,
         referenceAnswer: pendingTransfer.internalAnswer,
-        evaluatorCorrectness: evaluation.available ? evaluation.evaluation.correctness : null,
+        evaluatorCorrectness: available && finalEvaluation ? finalEvaluation.correctness : null,
         hintDelta: Math.max(0, input.responsePlan.allowedHintLevel - pendingTransfer.hintLevelAtIssue),
       });
 
@@ -638,15 +626,43 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
         studentId: input.studentId,
         attemptText: input.message,
         attemptType: 'transfer',
-        evaluation: evaluation.evaluation,
-        available: evaluation.available,
-        modelName: evaluation.modelName,
+        evaluation: finalEvaluation ?? {
+          extractedAnswer: input.message,
+          relevance: 1,
+          correctness: outcome.correctnessSource === 'deterministic' 
+            ? (outcome.outcome === 'attempted_incorrect' ? 0 : 1) 
+            : 0,
+          reasoningQuality: 0,
+          earliestMeaningfulError: null,
+          errorCategory: 'none',
+          understands: '',
+          missingPrerequisite: null,
+          smallestUsefulNextHint: null,
+          feedbackSummary: '',
+          confidence: outcome.confidence,
+          reasoningRubric: {
+            identifiedMethod: false,
+            explainedIntermediateStep: false,
+            connectedToConcept: false,
+            interpretedResult: false,
+            confidence: 0,
+            evidenceSpans: []
+          },
+          verificationRubric: {
+            recomputedOrSubstituted: false,
+            checkedUnitsOrPlausibility: false,
+            statedAssumptionOrLimitation: false,
+            correctlyJudgedContent: false,
+            confidence: 0,
+          }
+        },
+        available,
+        modelName,
         transfer: {
           outcome: outcome.outcome,
           correctnessSource: outcome.correctnessSource,
           confidence: outcome.confidence,
-          referenceAnswer: pendingTransfer.internalAnswer,
-          studentAnswer: evaluation.evaluation.extractedAnswer ?? input.message,
+          studentAnswer: finalEvaluation?.extractedAnswer ?? input.message,
         },
       });
 
@@ -655,6 +671,36 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
         evaluatedAt: FieldValue.serverTimestamp(),
       });
       summary.transferEvaluated = true;
+      summary.attemptEvaluated = available;
+    } else {
+      const evaluation = await evaluateAttempt({
+        problem: input.policy.originalProblem,
+        learningObjective: input.responsePlan.learningObjective,
+        transcript,
+        studentMessage: input.message,
+        grade: input.policy.grade,
+      });
+
+      const attemptType =
+        input.responsePlan.action === 'start_verification_task' ||
+        input.responsePlan.requiresVerification
+          ? 'verification'
+          : input.responsePlan.requiresExplanation
+            ? 'explanation'
+            : input.transcriptTurns.length <= 1
+              ? 'initial'
+              : 'intermediate';
+
+      await recordAttemptEvaluation({
+        sessionId: input.sessionId,
+        studentId: input.studentId,
+        attemptText: input.message,
+        attemptType,
+        evaluation: evaluation.evaluation,
+        available: evaluation.available,
+        modelName: evaluation.modelName,
+      });
+      summary.attemptEvaluated = evaluation.available;
     }
 
     // A new transfer problem, when the plan calls for one. The reference answer is
@@ -729,6 +775,8 @@ async function loadPendingTransfer(sessionId: string): Promise<
   | {
       id: string;
       internalAnswer: string;
+      problemMarkdown: string;
+      topic: string | null;
       hintLevelAtIssue: number;
     }
   | null
@@ -747,6 +795,8 @@ async function loadPendingTransfer(sessionId: string): Promise<
       return {
         id: docSnap.id,
         internalAnswer: typeof data.internalAnswer === 'string' ? data.internalAnswer : '',
+        problemMarkdown: typeof data.problemMarkdown === 'string' ? data.problemMarkdown : '',
+        topic: typeof data.topic === 'string' ? data.topic : null,
         hintLevelAtIssue:
           typeof data.hintLevelAtIssue === 'number' ? data.hintLevelAtIssue : 0,
         createdAt: data.createdAt?.toDate?.()?.getTime?.() ?? 0,

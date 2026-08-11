@@ -230,7 +230,7 @@ export async function generateTransferProblem(context: {
     const validated =
       lastStep === undefined
         ? false
-        : validateAnswer(lastStep, parsed.value.internalAnswer).verdict !== 'not_equivalent';
+        : validateAnswer(lastStep, parsed.value.internalAnswer).verdict === 'equivalent';
 
     return { problem: parsed.value, validated, modelName };
   } catch (error) {
@@ -325,7 +325,6 @@ export async function recordAttemptEvaluation(input: {
     outcome: TransferOutcome | null;
     correctnessSource: 'deterministic' | 'evaluator' | 'unavailable';
     confidence: number;
-    referenceAnswer: string | null;
     studentAnswer: string | null;
   };
 }): Promise<string> {
