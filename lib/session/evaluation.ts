@@ -261,7 +261,7 @@ Expected Grade: ${context.grade}`;
             temperature: 0.1,
           },
         });
-        const valResult = JSON.parse(valResponse.text);
+        const valResult = JSON.parse(valResponse.text || '{}');
         if (valResult && valResult.isValid === true) {
           finalValidated = true;
         }

@@ -1,4 +1,23 @@
 import { validateAnswer } from '@/lib/math/validation';
+import { getModelClient } from '@/lib/ai/model-client';
+import { Type, Schema as GeminiSchema } from '@google/genai';
+import { z } from 'zod';
+
+export const DISCLOSURE_JUDGE_MIN_CONFIDENCE = 0.8;
+
+const disclosureJudgeSchema = z.object({
+  verdict: z.enum(['safe', 'leak', 'uncertain']),
+  confidence: z.number().min(0).max(1),
+  reasonCode: z.enum([
+    'exact_answer',
+    'equivalent_answer',
+    'partial_answer',
+    'recoverable_answer',
+    'confirmation_leak',
+    'no_disclosure',
+    'uncertain'
+  ]),
+});
 
 export interface DisclosureValidationInput {
   messageMarkdown: string;
@@ -116,4 +135,76 @@ function extractCandidates(text: string): string[] {
   
   // Clean up punctuation at the ends of candidates
   return Array.from(candidates).map(c => c.replace(/^[.?!,;:\s]+|[.?!,;:\s]+$/g, '')).filter(c => c.length > 0);
+}
+
+export interface JudgeSemanticDisclosureInput {
+  problem: string;
+  referenceAnswer: string;
+  candidateResponse: string;
+  responsePlan: {
+    action: string;
+    allowedHintLevel: number;
+    mayRevealFinalAnswer: boolean;
+  };
+}
+
+export async function judgeSemanticDisclosure(input: JudgeSemanticDisclosureInput): Promise<DisclosureValidationResult> {
+  const judgePrompt = `You are a semantic disclosure judge. Determine if the candidate response reveals the final mathematical answer or confirms it, given the action plan constraints.
+Problem: ${input.problem}
+Reference Answer: ${input.referenceAnswer}
+Candidate Response: ${input.candidateResponse}
+Action Plan Action: ${input.responsePlan.action}
+Action Plan Allowed Hint Level: ${input.responsePlan.allowedHintLevel}
+Action Plan May Reveal Final Answer: ${input.responsePlan.mayRevealFinalAnswer}`;
+
+  const judgeSchema: GeminiSchema = {
+    type: Type.OBJECT,
+    properties: {
+      verdict: { type: Type.STRING, enum: ['safe', 'leak', 'uncertain'] },
+      confidence: { type: Type.NUMBER },
+      reasonCode: {
+        type: Type.STRING,
+        enum: ['exact_answer', 'equivalent_answer', 'partial_answer', 'recoverable_answer', 'confirmation_leak', 'no_disclosure', 'uncertain']
+      }
+    },
+    required: ['verdict', 'confidence', 'reasonCode']
+  };
+
+  const ai = getModelClient();
+  try {
+    const judgeResponse = await ai.models.generateContent({
+      model: process.env.GEMINI_DISCLOSURE_JUDGE_MODEL || 'gemini-3.6-flash',
+      contents: [{ role: 'user', parts: [{ text: judgePrompt }] }],
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: judgeSchema,
+        temperature: 0.1,
+      },
+    });
+
+    const rawText = (judgeResponse.text || '').trim().replace(/^```json|```$/g, '').trim();
+    const judgeParse = JSON.parse(rawText || '{}');
+    const parsed = disclosureJudgeSchema.safeParse(judgeParse);
+
+    if (!parsed.success) {
+      return { verdict: 'leak', confidence: 0, reason: 'schema_invalid' };
+    }
+
+    if (parsed.data.confidence < DISCLOSURE_JUDGE_MIN_CONFIDENCE) {
+      return { verdict: 'leak', confidence: parsed.data.confidence, reason: 'low_confidence' };
+    }
+
+    if (parsed.data.verdict === 'uncertain') {
+       return { verdict: 'leak', confidence: parsed.data.confidence, reason: 'judge_uncertain' };
+    }
+
+    return {
+      verdict: parsed.data.verdict,
+      confidence: parsed.data.confidence,
+      reason: parsed.data.reasonCode,
+    };
+  } catch (e) {
+    console.error('Semantic judge failed:', e);
+    return { verdict: 'leak', confidence: 0, reason: 'judge_failed' };
+  }
 }

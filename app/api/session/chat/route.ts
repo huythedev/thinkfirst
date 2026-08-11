@@ -261,7 +261,7 @@ Action: ${responsePlan.action}`;
       );
     }
 
-    const { validateSemanticDisclosure } = await import('@/lib/ai/disclosure-validation');
+    const { validateSemanticDisclosure, judgeSemanticDisclosure } = await import('@/lib/ai/disclosure-validation');
     let semanticResult = validateSemanticDisclosure({
       messageMarkdown: tutorParse.value.messageMarkdown,
       referenceAnswer: policy.referenceAnswer ?? null,
@@ -270,57 +270,22 @@ Action: ${responsePlan.action}`;
     });
 
     if (semanticResult.verdict !== 'leak' && !isFullSolutionAllowedThisTurn(responsePlan) && policy.referenceAnswer) {
-      const judgeSchema: Schema = {
-        type: Type.OBJECT,
-        properties: {
-          verdict: { type: Type.STRING, enum: ['safe', 'leak', 'uncertain'] },
-          confidence: { type: Type.NUMBER },
-          reasonCode: {
-            type: Type.STRING,
-            enum: ['exact_answer', 'equivalent_answer', 'partial_answer', 'recoverable_answer', 'confirmation_leak', 'no_disclosure', 'uncertain']
-          }
+      const judgeResult = await judgeSemanticDisclosure({
+        problem: policy.originalProblem,
+        referenceAnswer: policy.referenceAnswer,
+        candidateResponse: tutorParse.value.messageMarkdown,
+        responsePlan: {
+          action: responsePlan.action,
+          allowedHintLevel: responsePlan.allowedHintLevel,
+          mayRevealFinalAnswer: responsePlan.mayRevealFinalAnswer,
         },
-        required: ['verdict', 'confidence', 'reasonCode']
-      };
+      });
 
-      const judgePrompt = `You are a semantic disclosure judge. Determine if the candidate response reveals the final mathematical answer or confirms it, given the action plan constraints.
-Problem: ${policy.originalProblem}
-Reference Answer: ${policy.referenceAnswer}
-Candidate Response: ${tutorParse.value.messageMarkdown}
-Action Plan: ${responsePlan.action}`;
-
-      try {
-        const judgeResponse = await ai.models.generateContent({
-          model: process.env.GEMINI_DISCLOSURE_JUDGE_MODEL || 'gemini-3.6-flash',
-          contents: [{ role: 'user', parts: [{ text: judgePrompt }] }],
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: judgeSchema,
-            temperature: 0.1,
-          },
-        });
-        const judgeParse = JSON.parse(judgeResponse.text);
-        if (judgeParse && judgeParse.verdict) {
-          if (judgeParse.verdict === 'leak' || judgeParse.verdict === 'uncertain') {
-             semanticResult = {
-                verdict: 'leak',
-                confidence: judgeParse.confidence,
-                reason: judgeParse.reasonCode
-             };
-          } else if (semanticResult.verdict === 'unavailable') {
-             // Upgraded from unavailable to safe because Gemini judge cleared it
-             semanticResult = {
-                verdict: 'safe',
-                confidence: judgeParse.confidence,
-                reason: judgeParse.reasonCode
-             };
-          }
-        } else {
-           semanticResult = { verdict: 'leak', confidence: 0, reason: 'uncertain_fallback' };
-        }
-      } catch (e) {
-        console.error('Semantic judge failed:', e);
-        semanticResult = { verdict: 'leak', confidence: 0, reason: 'judge_failed' };
+      if (judgeResult.verdict === 'leak') {
+         semanticResult = judgeResult;
+      } else if (semanticResult.verdict === 'unavailable' && judgeResult.verdict === 'safe') {
+         // Upgraded from unavailable to safe because Gemini judge cleared it
+         semanticResult = judgeResult;
       }
     }
 
@@ -717,7 +682,7 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
           outcome: outcome.outcome,
           correctnessSource: outcome.correctnessSource,
           confidence: outcome.confidence,
-          studentAnswer: finalEvaluation?.extractedAnswer ?? input.message,
+          studentAnswer: input.message,
         },
       });
 

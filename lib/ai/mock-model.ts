@@ -331,5 +331,24 @@ export async function deterministicModelHandler(
   if (combined.includes('extraction') || combined.includes('image')) {
     return { text: JSON.stringify(EXTRACTION) };
   }
+  if (combined.includes('You are a semantic disclosure judge.')) {
+    // If the mock sees a specific marker in the response plan or candidate response, it can return specific judge values.
+    if (combined.includes('__MOCK_JUDGE_LEAK__')) {
+       return { text: JSON.stringify({ verdict: 'leak', confidence: 0.95, reasonCode: 'exact_answer' }) };
+    }
+    if (combined.includes('__MOCK_JUDGE_UNCERTAIN__')) {
+       return { text: JSON.stringify({ verdict: 'uncertain', confidence: 0.95, reasonCode: 'uncertain' }) };
+    }
+    if (combined.includes('__MOCK_JUDGE_LOW_CONFIDENCE__')) {
+       return { text: JSON.stringify({ verdict: 'safe', confidence: 0.4, reasonCode: 'no_disclosure' }) };
+    }
+    if (combined.includes('__MOCK_JUDGE_MALFORMED__')) {
+       return { text: '{ "verdict": "safe", "confidence"' };
+    }
+    if (combined.includes('__MOCK_JUDGE_INVALID_SCHEMA__')) {
+       return { text: JSON.stringify({ verdict: 'fine', confidence: 1 }) };
+    }
+    return { text: JSON.stringify({ verdict: 'safe', confidence: 0.95, reasonCode: 'no_disclosure' }) };
+  }
   return { text: JSON.stringify(EVALUATION) };
 }

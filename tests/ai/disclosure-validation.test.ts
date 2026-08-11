@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { validateSemanticDisclosure } from '@/lib/ai/disclosure-validation';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { validateSemanticDisclosure, judgeSemanticDisclosure } from '@/lib/ai/disclosure-validation';
 
 describe('Disclosure Validation', () => {
   const defaults = {
@@ -61,5 +61,75 @@ describe('Disclosure Validation', () => {
       referenceAnswer: 'x = 4',
     });
     expect(result.verdict).toBe('unavailable');
+  });
+});
+
+describe('judgeSemanticDisclosure', () => {
+  let originalDriver: string | undefined;
+
+  beforeAll(() => {
+    originalDriver = process.env.AI_MODEL_DRIVER;
+    process.env.AI_MODEL_DRIVER = 'mock';
+  });
+
+  afterAll(() => {
+    process.env.AI_MODEL_DRIVER = originalDriver;
+  });
+
+  const defaults = {
+    problem: 'Solve 2x = 8',
+    referenceAnswer: 'x = 4',
+    responsePlan: { action: 'provide_hint', allowedHintLevel: 1, mayRevealFinalAnswer: false },
+  };
+
+  it('blocks when the judge returns leak', async () => {
+    const result = await judgeSemanticDisclosure({
+      ...defaults,
+      candidateResponse: '__MOCK_JUDGE_LEAK__',
+    });
+    expect(result.verdict).toBe('leak');
+  });
+
+  it('blocks when the judge returns uncertain', async () => {
+    const result = await judgeSemanticDisclosure({
+      ...defaults,
+      candidateResponse: '__MOCK_JUDGE_UNCERTAIN__',
+    });
+    expect(result.verdict).toBe('leak');
+  });
+
+  it('blocks when the judge has low confidence', async () => {
+    const result = await judgeSemanticDisclosure({
+      ...defaults,
+      candidateResponse: '__MOCK_JUDGE_LOW_CONFIDENCE__',
+    });
+    expect(result.verdict).toBe('leak');
+    expect(result.reason).toBe('low_confidence');
+  });
+
+  it('blocks on malformed JSON', async () => {
+    const result = await judgeSemanticDisclosure({
+      ...defaults,
+      candidateResponse: '__MOCK_JUDGE_MALFORMED__',
+    });
+    expect(result.verdict).toBe('leak');
+    expect(result.reason).toBe('judge_failed');
+  });
+
+  it('blocks on invalid schema', async () => {
+    const result = await judgeSemanticDisclosure({
+      ...defaults,
+      candidateResponse: '__MOCK_JUDGE_INVALID_SCHEMA__',
+    });
+    expect(result.verdict).toBe('leak');
+    expect(result.reason).toBe('schema_invalid');
+  });
+
+  it('permits original response when high-confidence safe', async () => {
+    const result = await judgeSemanticDisclosure({
+      ...defaults,
+      candidateResponse: 'Here is a hint.',
+    });
+    expect(result.verdict).toBe('safe');
   });
 });
