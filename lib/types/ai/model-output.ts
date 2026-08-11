@@ -373,6 +373,18 @@ const WITHHELD_MESSAGE_VI =
   'từ đó.';
 
 /**
+ * Returns true only if the response plan explicitly authorizes a full solution
+ * to be delivered on the current turn.
+ */
+export function isFullSolutionAllowedThisTurn(plan: TutorResponsePlan): boolean {
+  return (
+    plan.action === 'provide_full_solution' &&
+    plan.allowedHintLevel === 7 &&
+    plan.mayRevealFinalAnswer === true
+  );
+}
+
+/**
  * Enforces the response plan on a generated response.
  *
  * Section 16 says the model must not decide its own permissions, and section 41.1
@@ -393,11 +405,7 @@ export function enforceResponsePlan(
   semanticLeak: boolean = false,
 ): EnforcementResult {
   const violations: PlanViolation[] = [];
-
-  const fullSolutionAllowedThisTurn =
-    plan.action === 'provide_full_solution' &&
-    plan.allowedHintLevel === 7 &&
-    plan.mayRevealFinalAnswer;
+  const fullSolutionAllowedThisTurn = isFullSolutionAllowedThisTurn(plan);
 
   if (response.hintLevel > plan.allowedHintLevel) {
     violations.push('hint_level_above_plan');

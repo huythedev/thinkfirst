@@ -1,5 +1,5 @@
 import { generateResponsePlan, type PolicyMode, type PolicyStrictness } from '@/services/ai-gateway/src/policy';
-import { enforceResponsePlan, parseIntentAnalysis, parseTutorResponse } from '@/lib/types/ai/model-output';
+import { enforceResponsePlan, isFullSolutionAllowedThisTurn, parseIntentAnalysis, parseTutorResponse } from '@/lib/types/ai/model-output';
 import { validateAnswer } from '@/lib/math/validation';
 import { validateSemanticDisclosure } from '@/lib/ai/disclosure-validation';
 import { dispositionFor, composeSafetyResponse, type SafetyCategory } from '@/lib/safety/response';
@@ -357,7 +357,7 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
         messageMarkdown: candidate.messageMarkdown,
         referenceAnswer: referenceAnswer,
         subject: evaluationCase.classifier.subject,
-        fullSolutionAllowedThisTurn: plan.action === 'provide_full_solution' || plan.mayRevealFinalAnswer,
+        fullSolutionAllowedThisTurn: isFullSolutionAllowedThisTurn(plan),
       });
 
       if (semanticResult.verdict === 'unavailable') {
@@ -371,7 +371,7 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
       const answerReached =
         hostile.leakedAnswer !== '__none__' && delivered.includes(hostile.leakedAnswer);
       const metadataLies =
-        enforced.response.finalAnswerIncluded && !plan.mayRevealFinalAnswer;
+        enforced.response.finalAnswerIncluded && !isFullSolutionAllowedThisTurn(plan);
       const levelLies = enforced.response.hintLevel > plan.allowedHintLevel;
 
       if (metadataLies || levelLies || hostile.leakedAnswer !== '__none__') {

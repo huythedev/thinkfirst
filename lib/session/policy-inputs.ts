@@ -102,6 +102,8 @@ interface Documents {
   studentProfile: Record<string, unknown> | null;
   /** The `problemImages` document this session came from, when it came from one. */
   problemImage?: Record<string, unknown> | null;
+  /** The protected server-only reference answer document. */
+  assignmentReference?: Record<string, unknown> | null;
 }
 
 /**
@@ -113,7 +115,7 @@ export function resolvePolicyFromDocuments(
   uid: string,
   documents: Documents,
 ): ResolvedPolicyInputs {
-  const { session, assignment, classroom, studentProfile, problemImage } = documents;
+  const { session, assignment, classroom, studentProfile, problemImage, assignmentReference } = documents;
 
   const profileStrictness = (studentProfile?.assistanceProfile as Record<string, unknown> | undefined)
     ?.defaultStrictness;
@@ -201,7 +203,7 @@ export function resolvePolicyFromDocuments(
         ? sessionProblem
         : extractedText;
 
-  const referenceAnswer = typeof assignment?.referenceAnswer === 'string' ? assignment.referenceAnswer : undefined;
+  const referenceAnswer = typeof assignmentReference?.referenceAnswer === 'string' ? assignmentReference.referenceAnswer : undefined;
 
   return {
     sessionId,
@@ -259,11 +261,12 @@ export async function resolvePolicyInputs(
   const classroomId = typeof session.classroomId === 'string' ? session.classroomId : null;
   const imageId = typeof session.imageId === 'string' ? session.imageId : null;
 
-  const [assignmentSnapshot, classroomSnapshot, profileSnapshot, imageSnapshot] = await Promise.all([
+  const [assignmentSnapshot, classroomSnapshot, profileSnapshot, imageSnapshot, assignmentReferenceSnapshot] = await Promise.all([
     assignmentId ? adminDb.collection('assignments').doc(assignmentId).get() : null,
     classroomId ? adminDb.collection('classrooms').doc(classroomId).get() : null,
     adminDb.collection('studentProfiles').doc(uid).get(),
     imageId ? adminDb.collection('problemImages').doc(imageId).get() : null,
+    assignmentId ? adminDb.collection('assignmentReferences').doc(assignmentId).get() : null,
   ]);
 
   const assignment =
@@ -274,6 +277,9 @@ export async function resolvePolicyInputs(
     profileSnapshot.exists ? ((profileSnapshot.data() ?? {}) as Record<string, unknown>) : null;
   const problemImage =
     imageSnapshot?.exists ? ((imageSnapshot.data() ?? {}) as Record<string, unknown>) : null;
+
+  const assignmentReference =
+    assignmentReferenceSnapshot?.exists ? ((assignmentReferenceSnapshot.data() ?? {}) as Record<string, unknown>) : null;
 
   // An assignment must belong to the classroom the session claims, otherwise a
   // session could point at a lenient assignment from elsewhere.
@@ -288,6 +294,7 @@ export async function resolvePolicyInputs(
       classroom,
       studentProfile,
       problemImage,
+      assignmentReference: assignmentBelongs ? assignmentReference : null,
     }),
   };
 }

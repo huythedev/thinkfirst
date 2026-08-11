@@ -9,6 +9,7 @@ import { chatRequestSchema, MAX_HINT_LEVEL } from '@/lib/types/ai/request';
 import {
   SAFE_FALLBACK_INTENT,
   enforceResponsePlan,
+  isFullSolutionAllowedThisTurn,
   parseIntentAnalysis,
   parseTutorResponse,
 } from '@/lib/types/ai/model-output';
@@ -265,7 +266,7 @@ Action: ${responsePlan.action}`;
       messageMarkdown: tutorParse.value.messageMarkdown,
       referenceAnswer: policy.referenceAnswer ?? null,
       subject: policy.subject,
-      fullSolutionAllowedThisTurn: responsePlan.action === 'provide_full_solution' || responsePlan.mayRevealFinalAnswer,
+      fullSolutionAllowedThisTurn: isFullSolutionAllowedThisTurn(responsePlan),
     });
 
     const enforcement = enforceResponsePlan(tutorParse.value, responsePlan, policy.language, semanticResult.verdict === 'leak');

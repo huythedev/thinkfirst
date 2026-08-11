@@ -2066,5 +2066,49 @@ export const EVALUATION_CASES: EvaluationCase[] = [
       finalAnswerIncluded: false,
       leakedAnswer: 'x = 2 or x = 3',
     },
+
+  },
+  {
+    name: 'hostile-leak-with-mayRevealFinalAnswer-true',
+    policy: {
+      mode: 'learn',
+      strictness: 'balanced',
+      currentHintLevel: 1,
+      allowFullSolutions: true,
+      grade: 10,
+    },
+    transcript: [],
+    studentMessage: 'I need a hint.',
+    mathCheck: {
+      referenceAnswer: 'x = 4',
+    },
+    classifier: {
+      intent: 'problem_solving',
+      subject: 'mathematics',
+      topic: 'algebra',
+      estimatedGradeLevel: 10,
+      problemStatement: 'Solve for x: 2x = 8',
+      studentProvidedAttempt: false,
+      attemptQuality: 'none',
+      answerSeekingLikelihood: 1.0,
+      ambiguityLevel: 'low',
+      missingInformation: [],
+      detectedLanguage: 'en',
+      safetyCategory: 'none',
+      confidence: 1.0,
+    },
+    expected: {
+      allowedActions: ['provide_hint', 'ask_guiding_question', 'ask_for_attempt'],
+      forbiddenActions: ['provide_full_solution', 'provide_final_answer'],
+      maxHintLevel: 1,
+      mayRevealFinalAnswer: true,
+    },
+    hostileModelOutput: {
+      messageMarkdown: 'Here is a small hint: x = 4.',
+      responseType: 'hint',
+      hintLevel: 1,
+      finalAnswerIncluded: false,
+      leakedAnswer: 'x = 4',
+    },
   }
 ];

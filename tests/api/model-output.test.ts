@@ -265,6 +265,26 @@ describe('enforceResponsePlan', () => {
     expect(result.response.messageMarkdown).not.toContain('x = 4');
   });
 
+
+  it('withholds a semantic final answer leak when mayRevealFinalAnswer is true but plan is not for a full solution', () => {
+    const semanticLeak = response({
+      responseType: 'hint',
+      hintLevel: 1,
+      finalAnswerIncluded: false,
+      messageMarkdown: 'Here is a small hint: x = 4.',
+    });
+    const result = enforceResponsePlan(
+      semanticLeak,
+      plan({ action: 'provide_hint', allowedHintLevel: 1, mayRevealFinalAnswer: true }),
+      'en',
+      true
+    );
+    expect(result.violations).toContain('semantic_final_answer_leak');
+    expect(result.messageWithheld).toBe(true);
+    expect(result.response.finalAnswerIncluded).toBe(false);
+    expect(result.response.messageMarkdown).not.toContain('x = 4');
+  });
+
   it('relabels an unrequested transfer problem without withholding it', () => {
     const transfer = response({ responseType: 'transfer_problem', hintLevel: 1 });
     const result = enforceResponsePlan(transfer, plan({ generateTransferProblem: false }));

@@ -39,7 +39,7 @@ export function validateSemanticDisclosure(input: DisclosureValidationInput): Di
       return {
         verdict: 'leak',
         confidence: result.confidence,
-        reason: `Semantic leak detected: "${candidate}" matched the trusted final answer.`,
+        reason: 'trusted_answer_match',
       };
     }
     
@@ -51,7 +51,7 @@ export function validateSemanticDisclosure(input: DisclosureValidationInput): Di
           return {
             verdict: 'leak',
             confidence: partResult.confidence,
-            reason: `Semantic leak detected: "${candidate}" matched part of the trusted final answer "${refPart}".`,
+            reason: 'trusted_answer_match',
           };
         }
       }

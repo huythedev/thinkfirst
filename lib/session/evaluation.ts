@@ -356,7 +356,6 @@ export async function recordAttemptEvaluation(input: {
             transferOutcome: input.transfer.outcome,
             correctnessSource: input.transfer.correctnessSource,
             correctnessConfidence: input.transfer.confidence,
-            referenceAnswer: input.transfer.referenceAnswer,
             studentAnswer: input.transfer.studentAnswer,
           }
         : {}),
