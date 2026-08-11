@@ -17,7 +17,7 @@ const disclosureJudgeSchema = z.object({
     'no_disclosure',
     'uncertain'
   ]),
-});
+}).strict();
 
 export interface DisclosureValidationInput {
   messageMarkdown: string;
@@ -148,6 +148,8 @@ export interface JudgeSemanticDisclosureInput {
   };
 }
 
+export const DISCLOSURE_JUDGE_TIMEOUT_MS = 5000;
+
 export async function judgeSemanticDisclosure(input: JudgeSemanticDisclosureInput): Promise<DisclosureValidationResult> {
   const judgePrompt = `You are a semantic disclosure judge. Determine if the candidate response reveals the final mathematical answer or confirms it, given the action plan constraints.
 Problem: ${input.problem}
@@ -171,17 +173,25 @@ Action Plan May Reveal Final Answer: ${input.responsePlan.mayRevealFinalAnswer}`
   };
 
   const ai = getModelClient();
-  try {
-    const judgeResponse = await ai.models.generateContent({
-      model: process.env.GEMINI_DISCLOSURE_JUDGE_MODEL || 'gemini-3.6-flash',
-      contents: [{ role: 'user', parts: [{ text: judgePrompt }] }],
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: judgeSchema,
-        temperature: 0.1,
-      },
-    });
 
+  const apiCall = ai.models.generateContent({
+    model: process.env.GEMINI_DISCLOSURE_JUDGE_MODEL || 'gemini-3.6-flash',
+    contents: [{ role: 'user', parts: [{ text: judgePrompt }] }],
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: judgeSchema,
+      temperature: 0.1,
+    },
+  });
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      reject(new Error('Disclosure judge timed out.'));
+    }, DISCLOSURE_JUDGE_TIMEOUT_MS);
+  });
+
+  try {
+    const judgeResponse = await Promise.race([apiCall, timeoutPromise]);
     const rawText = (judgeResponse.text || '').trim().replace(/^```json|```$/g, '').trim();
     const judgeParse = JSON.parse(rawText || '{}');
     const parsed = disclosureJudgeSchema.safeParse(judgeParse);

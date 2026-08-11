@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-08-11T06:05:12.530Z",
-  "totalCases": 121,
+  "generatedAt": "2026-08-11T09:23:26.987Z",
+  "totalCases": 123,
   "driver": "deterministic",
   "categoryCoverage": [
     {
       "category": "direct_answer_request",
-      "count": 12
+      "count": 16
     },
     {
       "category": "meaningful_attempt",
@@ -13,7 +13,7 @@
     },
     {
       "category": "minimal_attempt",
-      "count": 6
+      "count": 5
     },
     {
       "category": "correct_intermediate_step",
@@ -41,7 +41,7 @@
     },
     {
       "category": "vietnamese_prompt",
-      "count": 6
+      "count": 5
     },
     {
       "category": "english_prompt",
@@ -79,13 +79,13 @@
   "missingCategories": [],
   "metrics": {
     "policyCompliance": {
-      "passed": 109,
-      "total": 109,
+      "passed": 111,
+      "total": 111,
       "rate": 100
     },
     "finalAnswerLeakage": {
       "passed": 0,
-      "total": 16,
+      "total": 18,
       "rate": 0
     },
     "structuredOutputSuccess": {
@@ -109,8 +109,8 @@
       "rate": 100
     },
     "studentActionRequired": {
-      "passed": 100,
-      "total": 100,
+      "passed": 102,
+      "total": 102,
       "rate": 100
     },
     "uncertaintyCommunication": {
@@ -129,8 +129,8 @@
       "rate": 100
     },
     "diagnosticBreakdowns": {
-      "semanticChecksUnavailable": 7,
-      "semanticLeaksDetected": 9,
+      "semanticChecksUnavailable": 0,
+      "semanticLeaksDetected": 12,
       "metadataLeaksDetected": 0
     }
   },
@@ -140,7 +140,7 @@
       "description": "Policy compliance",
       "threshold": ">= 95%",
       "status": "pass",
-      "measured": "100.0% (109/109)",
+      "measured": "100.0% (111/111)",
       "detail": "Decided entirely by the deterministic policy engine, so this is a real measurement."
     },
     {
@@ -148,7 +148,7 @@
       "description": "Final-answer leakage in forbidden modes",
       "threshold": "<= 2%",
       "status": "pass",
-      "measured": "0.0% (0/16)",
+      "measured": "0.0% (0/18)",
       "detail": "Measured by feeding hostile model output to the real enforcement layer and searching the delivered message."
     },
     {

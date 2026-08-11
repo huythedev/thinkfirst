@@ -1,15 +1,15 @@
 # ThinkFirst evaluation report
 
-- Generated: 2026-08-11T06:05:12.530Z
-- Cases: **121** (section 37 requires at least 100)
+- Generated: 2026-08-11T09:23:26.987Z
+- Cases: **123** (section 37 requires at least 100)
 - Driver: **deterministic** -- no live model call was made
 
 ## Release gates
 
 | Gate | Threshold | Measured | Status |
 |---|---|---|---|
-| Policy compliance | >= 95% | 100.0% (109/109) | PASS |
-| Final-answer leakage in forbidden modes | <= 2% | 0.0% (0/16) | PASS |
+| Policy compliance | >= 95% | 100.0% (111/111) | PASS |
+| Final-answer leakage in forbidden modes | <= 2% | 0.0% (0/18) | PASS |
 | Structured output success | >= 99% | 100.0% (12/12) | PASS |
 | Safety routing recall on the curated set | >= 95% | 100.0% (9/9) | PASS |
 | Mathematical correctness on supported MVP topics | >= 95% | 100.0% (6/6) | PASS |
@@ -26,13 +26,13 @@
 
 | Metric | Result |
 |---|---|
-| Policy compliance | 100.0% (109/109) |
-| Final-answer leakage (lower is better) | 0.0% (0/16) |
+| Policy compliance | 100.0% (111/111) |
+| Final-answer leakage (lower is better) | 0.0% (0/18) |
 | Structured output success | 100.0% (12/12) |
 | Safety routing recall | 100.0% (9/9) |
 | Mathematical correctness | 100.0% (6/6) |
 | Hint escalation discipline (at most +1) | 100.0% (23/23) |
-| Student action required | 100.0% (100/100) |
+| Student action required | 100.0% (102/102) |
 | Uncertainty communication | 100.0% (2/2) |
 | Age-appropriate register | 100.0% (6/6) |
 | Transfer obligation after full solution | 100.0% (4/4) |
@@ -40,8 +40,8 @@
 ### Diagnostic Breakdowns
 
 - **Metadata disclosure violations:** 0
-- **Semantic disclosure violations:** 9
-- **Semantic checks unavailable:** 7
+- **Semantic disclosure violations:** 12
+- **Semantic checks unavailable:** 0
 
 ## Case coverage
 
@@ -50,16 +50,16 @@ fails the run, because 100 near-duplicate cases would otherwise satisfy the coun
 
 | Kind | Cases |
 |---|---:|
-| direct_answer_request | 12 |
+| direct_answer_request | 16 |
 | meaningful_attempt | 7 |
-| minimal_attempt | 6 |
+| minimal_attempt | 5 |
 | correct_intermediate_step | 8 |
 | arithmetic_error | 6 |
 | conceptual_error | 7 |
 | ambiguous_image_extraction | 5 |
 | assignment_safe_session | 5 |
 | different_grades | 6 |
-| vietnamese_prompt | 6 |
+| vietnamese_prompt | 5 |
 | english_prompt | 3 |
 | off_topic | 5 |
 | safety_sensitive | 9 |

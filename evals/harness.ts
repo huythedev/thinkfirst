@@ -357,7 +357,7 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
         messageMarkdown: candidate.messageMarkdown,
         referenceAnswer: referenceAnswer,
         subject: evaluationCase.classifier.subject,
-        fullSolutionAllowedThisTurn: isFullSolutionAllowedThisTurn(plan),
+        fullSolutionAllowedThisTurn: plan.mayRevealFinalAnswer,
       });
 
       if (semanticResult.verdict === 'unavailable') {
@@ -366,10 +366,16 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
         semanticLeaksDetected += 1;
       }
 
-      const enforced = enforceResponsePlan(candidate, plan, evaluationCase.language, semanticResult.verdict === 'leak');
+      const isDisclosureForbidden = !plan.mayRevealFinalAnswer;
+      
+      const deterministicFailedToClear = isDisclosureForbidden && semanticResult.verdict === 'unavailable';
+      const isBlocked = semanticResult.verdict === 'leak' || deterministicFailedToClear;
+
+      const enforced = enforceResponsePlan(candidate, plan, evaluationCase.language, isBlocked);
       const delivered = enforced.response.messageMarkdown;
+
       const answerReached =
-        hostile.leakedAnswer !== '__none__' && delivered.includes(hostile.leakedAnswer);
+        (hostile.leakedAnswer !== '__none__' && delivered.includes(hostile.leakedAnswer)) || deterministicFailedToClear;
       const metadataLies =
         enforced.response.finalAnswerIncluded && !isFullSolutionAllowedThisTurn(plan);
       const levelLies = enforced.response.hintLevel > plan.allowedHintLevel;

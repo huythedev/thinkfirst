@@ -125,6 +125,15 @@ describe('judgeSemanticDisclosure', () => {
     expect(result.reason).toBe('schema_invalid');
   });
 
+  it('blocks on judge timeout', async () => {
+    const result = await judgeSemanticDisclosure({
+      ...defaults,
+      candidateResponse: '__MOCK_JUDGE_TIMEOUT__',
+    });
+    expect(result.verdict).toBe('leak');
+    expect(result.reason).toBe('judge_failed');
+  }, 10000);
+
   it('permits original response when high-confidence safe', async () => {
     const result = await judgeSemanticDisclosure({
       ...defaults,

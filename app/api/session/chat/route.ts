@@ -114,7 +114,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const parsed = chatRequestSchema.safeParse(await req.json());
+    let requestBody;
+    try {
+      requestBody = await req.json();
+    } catch (e) {
+      return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
+    }
+
+    const parsed = chatRequestSchema.safeParse(requestBody);
     if (!parsed.success) {
       return NextResponse.json(
         { error: 'Invalid request.', details: parsed.error.flatten().fieldErrors },

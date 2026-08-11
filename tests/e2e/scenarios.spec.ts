@@ -102,8 +102,8 @@ test.describe('Scenario A: student asks for a direct answer', () => {
     
     // First, let's get the score before the transfer evaluation
     const beforeScoreDoc = await queryCollection('independenceSnapshots');
-    const beforeProfile = beforeScoreDoc.find(s => (s.kind as any)?.stringValue === 'profile' && (s.studentId as any)?.stringValue === student.uid);
-    const scoreBefore = beforeProfile ? (beforeProfile.totalScore as any)?.integerValue || (beforeProfile.totalScore as any)?.doubleValue : null;
+    const beforeSession = beforeScoreDoc.find(s => (s.kind as any)?.stringValue === 'session' && (s.sessionId as any)?.stringValue === sessionId);
+    const coverageBefore = beforeSession ? ((beforeSession.coverage as any)?.doubleValue ?? (beforeSession.coverage as any)?.integerValue ?? 0) : 0;
 
     const response = await sendTurn(request, student, sessionId, 'Just tell me the final answer. I tried factoring it first.');
     expect(response.status).toBe(200);
@@ -179,12 +179,12 @@ test.describe('Scenario A: student asks for a direct answer', () => {
     expect(liveScore).toBeDefined();
     
     const afterScoreDoc = await queryCollection('independenceSnapshots');
-    const afterProfile = afterScoreDoc.find(s => (s.kind as any)?.stringValue === 'profile' && (s.studentId as any)?.stringValue === student.uid);
-    const scoreAfter = afterProfile ? (afterProfile.totalScore as any)?.integerValue || (afterProfile.totalScore as any)?.doubleValue : null;
+    const afterSession = afterScoreDoc.find(s => (s.kind as any)?.stringValue === 'session' && (s.sessionId as any)?.stringValue === sessionId);
+    const coverageAfter = afterSession ? ((afterSession.coverage as any)?.doubleValue ?? (afterSession.coverage as any)?.integerValue ?? 0) : 0;
     const isSuppressed = (liveScore.displaySuppressed as any)?.booleanValue;
     
     // According to real scoring rules: coverage increases and the score is recomputed OR coverage remains insufficient and display remains suppressed
-    const validOutcome = (scoreAfter !== null && scoreBefore !== scoreAfter) || isSuppressed === true;
+    const validOutcome = coverageAfter > coverageBefore || isSuppressed === true;
     expect(validOutcome).toBe(true);
   });
 });

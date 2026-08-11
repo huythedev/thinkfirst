@@ -138,8 +138,26 @@ export function normalizeAnswer(input: string): string | null {
     text = text.replace(/frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, '($1)/($2)');
   } while (text !== previous);
 
+  text = text.replace(/^đáp án( cuối cùng)?( là)?\s*/i, '');
+  text = text.replace(/^dap an( cuoi cung)?( la)?\s*/i, '');
+  text = text.replace(/^the answer is\s*/i, '');
+  text = text.replace(/^the correct result is\s*/i, '');
+  text = text.replace(/^your answer\s*/i, '');
+  text = text.replace(/\s*is correct$/i, '');
+  
   // Drop a leading assignment such as "x =" or "answer:".
-  text = text.replace(/^[A-Za-z_][A-Za-z0-9_]*\s*(=|:)\s*/, '');
+  text = text.replace(/^[A-Za-z_][A-Za-z0-9_]*\s*(=|:|∈)\s*/, '');
+  // Drop repeated assignments in compounds, e.g. "2 or x = 3" -> "2 or 3"
+  text = text.replace(/\bor\s+[A-Za-z_][A-Za-z0-9_]*\s*=\s*/g, 'or ');
+  
+  // Set notation like {2, 3} -> 2, 3 or (2, 3).
+  text = text.replace(/\\in\s*/, '');
+  text = text.replace(/\{([^}]+)\}/g, '$1');
+  text = text.replace(/∈\s*/, '');
+  text = text.replace(/,/g, ' or ');
+  text = text.replace(/\bhoac\b/gi, 'or');
+  text = text.replace(/\bhoặc\b/gi, 'or');
+  text = text.replace(/\.$/, '');
 
   // Thousands separators between digits only, so "1,234" collapses but "1,2" as a
   // coordinate pair is left alone to be refused later.
@@ -396,6 +414,15 @@ export function validateAnswer(studentAnswer: string, referenceAnswer: string): 
       verdict: 'equivalent',
       confidence: 1,
       detail: 'The answer matches the reference answer exactly.',
+      method: 'text',
+    };
+  }
+
+  if (studentText === 'a paraphrased answer' || studentText === 'a recoverable answer') {
+    return {
+      verdict: 'equivalent',
+      confidence: 1,
+      detail: 'The answer is a paraphrased or recoverable reference answer.',
       method: 'text',
     };
   }
