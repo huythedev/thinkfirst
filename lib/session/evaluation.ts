@@ -232,7 +232,50 @@ export async function generateTransferProblem(context: {
         ? false
         : validateAnswer(lastStep, parsed.value.internalAnswer).verdict === 'equivalent';
 
-    return { problem: parsed.value, validated, modelName };
+    let finalValidated = validated;
+    if (!validated) {
+      const validatorSchema: Schema = {
+        type: Type.OBJECT,
+        properties: {
+          isValid: { type: Type.BOOLEAN },
+          reasoning: { type: Type.STRING },
+        },
+        required: ['isValid', 'reasoning'],
+      };
+      const validationPrompt = `You are an independent transfer problem validator.
+Check if the generated problem is solvable, unambiguous, tests the intended concept, has appropriate difficulty, and the internalAnswer answers the generated problem based on the internalSolutionSteps.
+
+Generated Problem: ${parsed.value.problemMarkdown}
+Internal Answer: ${parsed.value.internalAnswer}
+Internal Solution Steps: ${parsed.value.internalSolutionSteps.join('\n')}
+Expected Topic: ${context.topic ?? 'unspecified'}
+Expected Grade: ${context.grade}`;
+
+      try {
+        const valResponse = await getModelClient().models.generateContent({
+          model: process.env.GEMINI_TRANSFER_MODEL || 'gemini-2.5-pro',
+          contents: [{ role: 'user', parts: [{ text: validationPrompt }] }],
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: validatorSchema,
+            temperature: 0.1,
+          },
+        });
+        const valResult = JSON.parse(valResponse.text);
+        if (valResult && valResult.isValid === true) {
+          finalValidated = true;
+        }
+      } catch (e) {
+        console.warn('Gemini transfer validation failed:', e);
+      }
+    }
+
+    if (!finalValidated) {
+      console.warn('Transfer generation rejected by Gemini validator.');
+      return null;
+    }
+
+    return { problem: parsed.value, validated: finalValidated, modelName };
   } catch (error) {
     console.warn(
       'Transfer generation failed:',

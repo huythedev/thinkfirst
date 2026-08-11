@@ -32,6 +32,9 @@ export function validateSemanticDisclosure(input: DisclosureValidationInput): Di
   // Split the reference answer to handle cases like "x = 2 or x = 3"
   const referenceParts = input.referenceAnswer.split(/,| or | and /).map(p => p.trim()).filter(p => p.length > 0);
   
+  let allUnsupported = true;
+  let hasUnsupported = false;
+  
   for (const candidate of candidates) {
     // Check against the whole reference answer
     const result = validateAnswer(candidate, input.referenceAnswer);
@@ -41,6 +44,11 @@ export function validateSemanticDisclosure(input: DisclosureValidationInput): Di
         confidence: result.confidence,
         reason: 'trusted_answer_match',
       };
+    }
+    if (result.verdict !== 'unsupported') {
+      allUnsupported = false;
+    } else {
+      hasUnsupported = true;
     }
     
     // Check against parts of the reference answer
@@ -54,8 +62,17 @@ export function validateSemanticDisclosure(input: DisclosureValidationInput): Di
             reason: 'trusted_answer_match',
           };
         }
+        if (partResult.verdict !== 'unsupported') {
+          allUnsupported = false;
+        } else {
+          hasUnsupported = true;
+        }
       }
     }
+  }
+
+  if (hasUnsupported) {
+    return { verdict: 'unavailable', confidence: 0, reason: 'Some checks unsupported, safety cannot be fully established.' };
   }
 
   return { verdict: 'safe', confidence: 1, reason: 'No mathematical leakage of the reference answer detected.' };

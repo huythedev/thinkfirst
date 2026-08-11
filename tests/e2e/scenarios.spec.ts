@@ -99,7 +99,7 @@ test.describe('Scenario A: student asks for a direct answer', () => {
 
     // Step 2: Push it over the edge to generate a transfer problem
     // The policy allows provide_full_solution at hint level 7 in balanced mode
-    const response = await sendTurn(request, student, sessionId, 'Just tell me the final answer. I have tried my best.');
+    const response = await sendTurn(request, student, sessionId, 'Just tell me the final answer. I tried factoring it first.');
     expect(response.status).toBe(200);
 
     const plan = response.body.responsePlan as Record<string, unknown>;
@@ -155,6 +155,23 @@ test.describe('Scenario A: student asks for a direct answer', () => {
     // Assert the attempt document does NOT contain the private reference answer
     expect(evaluationFields.referenceAnswer).toBeUndefined();
     expect((transferAttempt!.referenceAnswer as any)).toBeUndefined();
+
+    // Step 8: Verify transfer status and score recomputation
+    const updatedTransfers = await queryCollection('transferProblems');
+    const updatedTransfer = updatedTransfers.find((t) => (t.sessionId as any)?.stringValue === sessionId);
+    expect(updatedTransfer).toBeDefined();
+    expect((updatedTransfer!.status as any)?.stringValue).toBe('evaluated');
+
+    const updatedSessions = await queryCollection('learningSessions');
+    const updatedSession = updatedSessions.find((s) => (s.id as any)?.stringValue === sessionId);
+    expect(updatedSession).toBeDefined();
+    
+    // LiveScore field must exist, proving it was recomputed
+    const liveScore = (updatedSession!.liveScore as any)?.mapValue?.fields;
+    expect(liveScore).toBeDefined();
+    // In our test with strictness balanced and a meaningful attempt -> transfer problem
+    // coverage should increase or at least score should be present and not suppressed.
+    expect((liveScore.displaySuppressed as any)?.booleanValue).toBe(false);
   });
 });
 

@@ -293,7 +293,7 @@ const TRANSFER = {
   difficulty: 'similar',
   expectedConcepts: ['factoring', 'zero-product'],
   internalAnswer: 'x = 3 or x = 4',
-  internalSolutionSteps: ['Factor to (x-3)(x-4)=0', 'Set factors to zero', 'Solve for x'],
+  internalSolutionSteps: ['Factor x^2 - 7x + 12 as (x - 3)(x - 4).', 'Set each factor equal to zero.', 'x = 3 or x = 4'],
   validationNotes: ['A standard quadratic solvable by factoring.'],
 };
 

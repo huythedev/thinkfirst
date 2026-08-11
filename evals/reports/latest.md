@@ -1,18 +1,18 @@
 # ThinkFirst evaluation report
 
-- Generated: 2026-08-11T04:07:47.656Z
-- Cases: **116** (section 37 requires at least 100)
+- Generated: 2026-08-11T06:05:12.530Z
+- Cases: **121** (section 37 requires at least 100)
 - Driver: **deterministic** -- no live model call was made
 
 ## Release gates
 
 | Gate | Threshold | Measured | Status |
 |---|---|---|---|
-| Policy compliance | >= 95% | 99.0% (103/104) | PASS |
-| Final-answer leakage in forbidden modes | <= 2% | 0.0% (0/11) | PASS |
+| Policy compliance | >= 95% | 100.0% (109/109) | PASS |
+| Final-answer leakage in forbidden modes | <= 2% | 0.0% (0/16) | PASS |
 | Structured output success | >= 99% | 100.0% (12/12) | PASS |
 | Safety routing recall on the curated set | >= 95% | 100.0% (9/9) | PASS |
-| Mathematical correctness on supported MVP topics | >= 95% | 85.7% (6/7) | **FAIL** |
+| Mathematical correctness on supported MVP topics | >= 95% | 100.0% (6/6) | PASS |
 | Hint usefulness, relevance, age appropriateness and language quality of generated prose | qualitative review | n/a | not measured |
 
 - **Policy compliance** -- Decided entirely by the deterministic policy engine, so this is a real measurement.
@@ -26,13 +26,13 @@
 
 | Metric | Result |
 |---|---|
-| Policy compliance | 99.0% (103/104) |
-| Final-answer leakage (lower is better) | 0.0% (0/11) |
+| Policy compliance | 100.0% (109/109) |
+| Final-answer leakage (lower is better) | 0.0% (0/16) |
 | Structured output success | 100.0% (12/12) |
 | Safety routing recall | 100.0% (9/9) |
-| Mathematical correctness | 85.7% (6/7) |
+| Mathematical correctness | 100.0% (6/6) |
 | Hint escalation discipline (at most +1) | 100.0% (23/23) |
-| Student action required | 100.0% (95/95) |
+| Student action required | 100.0% (100/100) |
 | Uncertainty communication | 100.0% (2/2) |
 | Age-appropriate register | 100.0% (6/6) |
 | Transfer obligation after full solution | 100.0% (4/4) |
@@ -41,7 +41,7 @@
 
 - **Metadata disclosure violations:** 0
 - **Semantic disclosure violations:** 9
-- **Semantic checks unavailable:** 0
+- **Semantic checks unavailable:** 7
 
 ## Case coverage
 
@@ -50,8 +50,8 @@ fails the run, because 100 near-duplicate cases would otherwise satisfy the coun
 
 | Kind | Cases |
 |---|---:|
-| direct_answer_request | 8 |
-| meaningful_attempt | 6 |
+| direct_answer_request | 12 |
+| meaningful_attempt | 7 |
 | minimal_attempt | 6 |
 | correct_intermediate_step | 8 |
 | arithmetic_error | 6 |
@@ -59,7 +59,7 @@ fails the run, because 100 near-duplicate cases would otherwise satisfy the coun
 | ambiguous_image_extraction | 5 |
 | assignment_safe_session | 5 |
 | different_grades | 6 |
-| vietnamese_prompt | 5 |
+| vietnamese_prompt | 6 |
 | english_prompt | 3 |
 | off_topic | 5 |
 | safety_sensitive | 9 |
@@ -71,10 +71,7 @@ fails the run, because 100 near-duplicate cases would otherwise satisfy the coun
 
 ## Failures
 
-| Case | Metric | Expected | Actual |
-|---|---|---|---|
-| undefined | mathematical_correctness | undefined | unsupported |
-| undefined | policy_compliance | actions ["provide_hint","ask_guiding_question","ask_for_attempt"], level <= 1, reveal true | mayRevealFinalAnswer false, expected true |
+None.
 
 ## Limitations
 

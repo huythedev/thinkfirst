@@ -40,7 +40,7 @@ describe('Disclosure Validation', () => {
       messageMarkdown: 'Subtract 3 from both sides to get 2x = 8.',
       referenceAnswer: 'x = 4',
     });
-    expect(result.verdict).toBe('safe');
+    expect(result.verdict).toBe('unavailable');
   });
 
   it('allows full solutions when authorized', () => {
