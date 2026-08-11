@@ -7,9 +7,10 @@ answer" as the beginning of a conversation rather than a request to fulfil. It
 withholds solutions until a student has engaged, escalates help one rung at a
 time, and measures independence rather than completion.
 
-> **Status: MVP in development.** Ten of twelve build phases meet their exit
-> criteria. It has never been deployed, and the section 37 release gates that
-> need a live model at scale have not been measured. See
+> **Status: MVP in development.** ThinkFirst is deployed to Cloud Run. A small
+> subset of the end-to-end checks has exercised the live Gemini API, but the
+> section 37 release gates that need a live model at scale have not been
+> measured. See
 > [Known limitations](#known-limitations) and [docs/progress.md](docs/progress.md).
 
 ---
@@ -218,7 +219,7 @@ The client never decides trusted policy inputs such as learning mode, strictness
 
 | Layer | Choice |
 |---|---|
-| Framework | Next.js 15 (App Router), React 19 |
+| Framework | Next.js 16 (App Router), React 19 |
 | Language | TypeScript 5.9, `strict` |
 | Styling | Tailwind CSS 4 |
 | AI | Google Gemini via `@google/genai` |
@@ -235,7 +236,7 @@ The client never decides trusted policy inputs such as learning mode, strictness
 ## Local setup
 
 **Prerequisites:** Node.js 20 or later, and Java 11 or later for the Firebase
-emulators.
+emulators. The production Docker image uses Node.js 24.
 
 ```bash
 npm ci                      # reproducible install from the lockfile
@@ -253,9 +254,11 @@ npm run typecheck    # tsc --noEmit, the only reliable type gate
 npm test             # unit, rules and integration suites
 npm run test:unit    # offline unit tests only
 npm run test:e2e     # Playwright, section 38 scenarios A to F
+npm run test:e2e:gemini # opt-in Playwright run against live Gemini
 npm run eval         # section 37 evaluation suite
 npm run seed         # section 43 demo classroom
 npm run emulators    # Firebase emulators
+npm run dev:gemini   # local server with live Gemini and Storage emulator support
 ```
 
 `next.config.ts` sets `ignoreBuildErrors`, so `npm run build` does **not** fail
@@ -276,6 +279,7 @@ This starts Auth on `9099`, Firestore on `8085`, Storage, and the emulator UI at
 NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true
 NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
 NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST=127.0.0.1:8085
+NEXT_PUBLIC_FIREBASE_STORAGE_EMULATOR_HOST=127.0.0.1:9199
 ```
 
 Both host variables are **required** when the flag is true; startup fails loudly
@@ -291,24 +295,24 @@ Full list with comments in [.env.example](.env.example).
 | Variable | Required | Purpose |
 |---|---|---|
 | `GEMINI_API_KEY` | Production | Server-side only, never sent to the browser |
-| `GEMINI_TUTOR_MODEL` | No | Code default |
-| `GEMINI_CLASSIFIER_MODEL` | No | Code default |
-| `GEMINI_EVALUATOR_MODEL` | No | Code default |
-| `GEMINI_TRANSFER_MODEL` | No | Code default |
-| `GEMINI_EXTRACTION_MODEL` | No | Must support image input |
+| `GEMINI_TUTOR_MODEL` | No | Defaults to `gemini-3.6-flash` |
+| `GEMINI_CLASSIFIER_MODEL` | No | Defaults to `gemini-3.6-flash` |
+| `GEMINI_EVALUATOR_MODEL` | No | Defaults to `gemini-3.6-flash` |
+| `GEMINI_TRANSFER_MODEL` | No | Defaults to `gemini-3.6-flash` |
+| `GEMINI_EXTRACTION_MODEL` | No | Defaults to `gemini-3.6-flash`; must support image input |
 | `AI_MODEL_DRIVER` | No | `mock` serves deterministic output; ignored in production |
 | `LOG_LEVEL` | No | `debug`, `info`, `warn` or `error` |
 | `NEXT_PUBLIC_USE_FIREBASE_EMULATORS` | No | `true` for local development |
 | `NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST` | With the flag | e.g. `127.0.0.1:9099` |
 | `NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST` | With the flag | e.g. `127.0.0.1:8085` |
+| `NEXT_PUBLIC_FIREBASE_STORAGE_EMULATOR_HOST` | No | Set to `127.0.0.1:9199` to use the Storage emulator from the browser |
 
 Validation runs at startup in `lib/env.ts` and names each failing variable.
 Never commit `.env.local`.
 
 ## Google Cloud setup
 
-Not performed for this repository; there is no deployed project. A deployment
-would require:
+Cloud Run deployment requires:
 
 1. Create a Firebase project and enable Auth (Google provider), Firestore and
     Storage.
@@ -324,8 +328,8 @@ would require:
 ## Running tests
 
 ```bash
-npm test           # 380+ unit, 118 rules, 59 integration
-npm run test:e2e   # 14 Playwright checks, section 38 scenarios A to F
+npm test           # unit, rules and emulator-backed integration suites
+npm run test:e2e   # mock-backed Playwright scenarios A to F
 ```
 
 The suites answer different questions, deliberately:
@@ -341,6 +345,36 @@ The suites answer different questions, deliberately:
 
 There are also hostile verification scripts that run against a dev server with
 emulators, for example `npm run verify:safety`.
+
+### Live Gemini smoke tests
+
+The default test and evaluation commands are deterministic and do not call
+Gemini. To exercise the same routes with real provider calls, keep Firebase data
+local but explicitly opt into the live model driver:
+
+```bash
+# terminal 1
+npm run emulators
+
+# terminal 2 — requires GEMINI_API_KEY in .env.local
+npm run dev:gemini
+
+# terminal 3
+npm run verify:safety -- http://localhost:3000
+npm run verify:images -- http://localhost:3000
+```
+
+For a targeted browser smoke test, reuse that server rather than starting a
+second Next.js development server:
+
+```bash
+E2E_BASE_URL=http://localhost:3000 \
+npm run test:e2e:gemini -- --project=chromium --grep "Scenario C"
+```
+
+Live runs spend Gemini quota and model output is not deterministic. They are
+therefore smoke tests, not a replacement for the mock-backed suite, and are not
+run in CI.
 
 ## Running evaluations
 
@@ -387,9 +421,8 @@ available to pull requests from forks, and deployment is triggered only by
 trusted pushes to `main` or `staging`, never by `pull_request`.
 
 The complete provisioning, secrets, App Check, deployment and rollback procedure
-is in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). This workspace has no Git remote,
-Firebase project, or deployment credentials, so the workflows have not run on a
-GitHub runner and the app remains undeployed.
+is in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). ThinkFirst is deployed to Cloud
+Run; local emulator checks remain the primary repeatable verification path.
 
 ## Data model
 
@@ -435,11 +468,17 @@ A tutoring turn:
     analysis.
 3. **Decide the plan** deterministically: allowed hint level, whether the final
     answer may be revealed, what the student must do, and a rationale code.
-4. **Short-circuit on safety** before any tutor call.
-5. **Generate** inside those constraints.
+4. **Short-circuit on safety** after classification and before any tutor,
+    evaluator or transfer-model call.
+5. **Generate** inside those constraints. Transfer problems are retained only
+    after deterministic validation or an independent validation pass accepts
+    them.
 6. **Revalidate and enforce.** A response exceeding its plan has its prose
     *withheld*, not merely relabelled: text that reveals the answer has already
-    revealed it.
+    revealed it. For mathematics, the response is also compared semantically
+    with the trusted reference answer. If the secondary judge is invoked and
+    fails or is uncertain, the response fails closed rather than allowing a
+    possible answer leak.
 7. **Persist server-side.** The assistant turn, the hint level and the score are
     all server-authored.
 
@@ -450,9 +489,10 @@ transfer problem.
 ## Safety
 
 - Eight classifier categories map onto section 24's four response classes.
-- A safety turn makes **no model call**, is **excluded from scoring**, and does
-   **not** reset an earned hint level. Punishing a student for disclosing harm
-   would be an unusually cruel bug.
+- A safety turn is classified before it is handled, but its final response is
+   **deterministic**: it bypasses the tutor, evaluator and transfer-model calls,
+   is **excluded from scoring**, and does **not** reset an earned hint level.
+   Punishing a student for disclosing harm would be an unusually cruel bug.
 - **No crisis hotline numbers ship, deliberately.** Nothing in this environment
    can verify a number for any jurisdiction, and a wrong crisis number is worse
    than none: it consumes the one moment a student reached out. The code refuses
@@ -484,12 +524,12 @@ unimplemented**: there is no scheduled deletion job.
 Stated plainly, because a limitations section that lists nothing real is
 marketing.
 
-- **Never deployed.** No cloud project, no CI run, no production traffic.
 - **Section 37 release gates are unmeasured at scale.** The evaluation suite is
    deterministic; tutor prose quality needs live-model budget.
-- **The Gemini free tier is 20 requests a day**, and a tutoring turn makes up to
-   four calls. Live end-to-end verification has repeatedly been impossible, and
-   several claims in `docs/progress.md` are marked UNVERIFIED for this reason.
+- **Live Gemini coverage is partial.** Selected safety, image and browser smoke
+   paths have been exercised with live API calls, but provider quota and
+   non-deterministic output prevent the full end-to-end suite from serving as a
+   repeatable live-model release gate.
 - **Join codes are stored as plain-text document ids**, which section 39 forbids.
    The lookup is a client-SDK read that never reaches a route handler, so it
    cannot be rate-limited; fixing it means moving the join to a server route.
@@ -499,7 +539,6 @@ marketing.
    been measured. See [docs/ACCESSIBILITY-REVIEW.md](docs/ACCESSIBILITY-REVIEW.md).
 - **No i18n framework.** Vietnamese is supported in prompts, safety resources and
    content, but the interface chrome is English.
-- **Not a git repository**, so there is no commit history behind any of this.
 
 ## Demo
 

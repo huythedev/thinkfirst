@@ -19,3 +19,7 @@ test-results/
 .DS_Store
 
 AI_log/
+
+firebase-debug.log
+firestore-debug.log
+pglite-debug.log

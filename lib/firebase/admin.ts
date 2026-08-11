@@ -40,6 +40,12 @@ if (useEmulators) {
   // and skips credential discovery and token signature verification for them.
   process.env.FIREBASE_AUTH_EMULATOR_HOST ??= authHost;
   process.env.FIRESTORE_EMULATOR_HOST ??= firestoreHost;
+
+  // Problem-image uploads use the Admin Storage SDK. Without this mapping it
+  // attempts the real bucket before extraction is reached, even though the
+  // rest of the application is using local emulators.
+  process.env.FIREBASE_STORAGE_EMULATOR_HOST ??=
+    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_EMULATOR_HOST ?? '127.0.0.1:9199';
 }
 
 let adminApp: App;
@@ -72,4 +78,3 @@ const adminAuth = getAuth(adminApp);
 const adminStorage = getStorage(adminApp);
 
 export { adminDb, adminAuth, adminStorage, adminApp as admin, useEmulators };
-

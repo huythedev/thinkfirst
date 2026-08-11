@@ -24,6 +24,16 @@
  * Usage: node scripts/verify-safety-e2e.mjs [baseUrl]
  */
 
+import { createHash } from 'node:crypto';
+import nextEnv from '@next/env';
+
+const { loadEnvConfig } = nextEnv;
+
+// Keep the script's rate-limit key derivation aligned with the server when a
+// local RATE_LIMIT_SALT is configured. This stays server-side; no secret is
+// sent in an HTTP request.
+loadEnvConfig(process.cwd(), true);
+
 const baseUrl = process.argv[2] ?? 'http://localhost:3400';
 const AUTH_HOST = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST ?? '127.0.0.1:9099';
 const FIRESTORE_HOST = process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST ?? '127.0.0.1:8085';
@@ -116,6 +126,12 @@ async function chat(sessionId, idToken, message, extraHeaders = {}) {
     body = null;
   }
   return { status: response.status, body, headers: response.headers };
+}
+
+function rateLimitDocumentId(operation, scope, identifier) {
+  const salt = process.env.RATE_LIMIT_SALT ?? '';
+  const hash = createHash('sha256').update(`${salt}:${identifier}`).digest('hex').slice(0, 32);
+  return `${operation}__${scope}__${hash}`;
 }
 
 async function main() {
@@ -310,34 +326,33 @@ async function main() {
 
   console.log('\nThe rate limit refuses a real request');
   {
-    // The configured tutor limit is 12 per minute per user. Fire more than that and
-    // require at least one 429 carrying `Retry-After`, which is what distinguishes
-    // the limiter's refusal from the provider's own 429 (which surfaces as a 500).
-    //
-    // Last, because every attempt that clears the limiter spends a model call.
-    let sawRateLimit = false;
-    let retryAfter = null;
-    let attempts = 0;
-
-    for (let index = 0; index < 16; index += 1) {
-      const result = await chat(sessionId, student.idToken, `attempt ${index}`);
-      attempts += 1;
-      if (result.status === 429) {
-        sawRateLimit = true;
-        retryAfter = result.headers.get('Retry-After');
-        break;
-      }
-    }
+    // A live model provider can reject earlier than the application's 12/minute
+    // user limit (the free Gemini tier permits only five requests per minute).
+    // Seed the trusted counter to represent the earlier allowed requests, then
+    // drive one real HTTP request through the route. The refusal therefore occurs
+    // before any provider call and still verifies the deployed limiter/header.
+    const now = Date.now();
+    const windowStart = Math.floor(now / 60_000) * 60_000;
+    const seeded = await writeDoc(
+      'rateLimits',
+      rateLimitDocumentId('tutor-chat', 'user', student.uid),
+      {
+        count: { integerValue: '12' },
+        windowStart: { timestampValue: new Date(windowStart).toISOString() },
+        expiresAt: { timestampValue: new Date(windowStart + 60_000).toISOString() },
+      },
+    );
+    const result = await chat(sessionId, student.idToken, 'request after quota');
 
     check(
-      'a burst above the per-user limit is refused with 429',
-      sawRateLimit,
-      `no 429 in ${attempts} attempts`,
+      'a request after the per-user quota is exhausted is refused with 429',
+      seeded === 200 && result.status === 429,
+      `seed ${seeded}, request ${result.status}`,
     );
     check(
       'the refusal carries Retry-After',
-      retryAfter !== null && Number(retryAfter) > 0,
-      `Retry-After ${retryAfter}`,
+      result.headers.get('Retry-After') !== null && Number(result.headers.get('Retry-After')) > 0,
+      `Retry-After ${result.headers.get('Retry-After')}`,
     );
   }
 

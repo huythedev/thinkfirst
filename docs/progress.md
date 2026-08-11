@@ -9,8 +9,9 @@ updating this file is incomplete.
   section 48 (CI/CD) and section 51 (acceptance), which section 49 never assigned to a
   phase.
 - Exit criteria: from section 49 as amended by `docs/INSTRUCTION-AUDIT.md` patch 2a.
-- Last updated: **2026-08-07** by session
-   [2026-08-07-16](logs/2026-08-07-16-full-local-audit.md).
+- Last full ledger audit: **2026-08-07** by session
+   [2026-08-07-16](logs/2026-08-07-16-full-local-audit.md). Current-state
+   amendment: **2026-08-11**.
 
 ---
 
@@ -37,11 +38,19 @@ Secondary figure, as an honesty check: **96%** by criterion weight (76 of 79 cri
 `[~]` counting 0.5). Recounted with `node scripts/recount-progress.mjs` rather than typed, per
 scoring rule 4. The two numbers are 1 point apart.
 
-**Ten of twelve phases are now closed.** Phase 10's implementation artifacts are complete,
-but the workflow has not run because it needs a remote repository and cloud project, neither of
-which exists here. The 97% should be read with that in mind. It does not mean the product is 97%
-shippable; it means the implementation and documentation gates are complete while deployment
-execution remains externally blocked.
+**Ten of twelve phases are now closed.** Phase 10's implementation artifacts are complete. The
+2026-08-07 audit had no deployment evidence; since then, a Cloud Run deployment has been reported.
+That deployment has not been independently re-audited in this ledger, and GitHub Actions runner
+execution remains unverified here. The 96% should be read with that in mind: it does not mean the
+product is 96% shippable.
+
+**Current-state amendment, 2026-08-11.** The application is deployed to Cloud Run. Live-driver
+smoke runs have also been performed against the local emulator-backed application: the safety
+verification script passed **18/18**, and the image verification script passed **24 checks** with
+one expected extraction skip when the provider quota was exhausted. A targeted live Playwright
+scenario received the provider quota failure as a route `500`. These runs establish partial live
+API-path coverage only; they do not measure the full section 37 release gates, so no phase score
+or release marker changes in this amendment.
 
 Phase 9's headline finding is that **the constraint everyone had accepted was the wrong one**.
 Every session since 07 has recorded the Gemini free tier (20 requests/day, four calls per
@@ -237,10 +246,11 @@ Closed since the baseline:
 | P0-2 | `sessionTurns` and `studentAttempts` readable by any authenticated user | A prior unlogged session, verified 2026-08-06 | The string `isAuthenticated` appears **0 times** in `firebase/firestore.rules`. Both collections are scoped to `resource.data.studentId == request.auth.uid` or admin, with negative tests |
 | P0-4 | Two `firestore.rules` files | Same | Recursive search for `firestore.rules` outside `node_modules` returns exactly one path: `firebase/firestore.rules`, which is the one `firebase.json` deploys |
 
-Environment blockers, not defects: no ADC on this machine
-(`gcloud auth application-default print-access-token` fails, no ADC file), no deployed
-Firebase project, no reCAPTCHA registration for App Check, no Cloud Run. Record these in
-`docs/ASSUMPTIONS.md` with the acceptance criteria they affect.
+Environment blockers at the time of the 2026-08-07 baseline audit, not defects: no ADC on this
+machine (`gcloud auth application-default print-access-token` fails, no ADC file), no deployed
+Firebase project, no reCAPTCHA registration for App Check, and no Cloud Run evidence available to
+the audit. The 2026-08-11 amendment records a reported Cloud Run deployment; the remaining items
+belong in `docs/ASSUMPTIONS.md` with the acceptance criteria they affect.
 
 ---
 
@@ -382,7 +392,7 @@ abandonment.
 
 | | Criterion | Evidence |
 |---|---|---|
-| `[x]` | GitHub Actions: install, lint, typecheck, unit tests, rules tests, build | `.github/workflows/ci.yml` runs each as a named step; the workflow also runs integration tests. Local verification: `npm run lint`, `npm run typecheck`, `npm run test:unit`, `npm run test:rules`, `npm run test:integration` and `npm run build` exit 0. The workflow has not run on GitHub because no remote exists |
+| `[x]` | GitHub Actions: install, lint, typecheck, unit tests, rules tests, build | `.github/workflows/ci.yml` runs each as a named step; the workflow also runs integration tests. Local verification: `npm run lint`, `npm run typecheck`, `npm run test:unit`, `npm run test:rules`, `npm run test:integration` and `npm run build` exit 0. GitHub-run execution is not independently evidenced in this ledger |
 | `[x]` | Prompt evaluation on a deterministic subset in CI | `.github/workflows/ci.yml` `evaluate` job runs `npm run eval` with the Phase 9 mock driver and uploads `evals/reports/latest.{json,md}`. Local verification: 111 cases and all measured gates pass |
 | `[x]` | E2E smoke test in CI | `.github/workflows/ci.yml` `e2e` job installs Java and Chromium, starts Auth/Firestore/Storage emulators, waits for Firestore, and runs `npm run test:e2e` with `AI_MODEL_DRIVER=mock`. The job skips fork PRs and uploads traces/reports. Local Phase 9 evidence: 14 passed, 1 recorded skip; GitHub execution remains unverified |
 | `[x]` | Deployment documentation for development, staging, production | `docs/DEPLOYMENT.md` documents project provisioning, Firebase resources, Cloud Run, secrets, App Check, local development, deployment and rollback for all three environments; README links to it |
@@ -397,7 +407,7 @@ abandonment.
 | `[x]` | Section 51 AI behavior criteria all met | The one named condition, "no evaluation suite to measure behavior at scale", is closed: `npm run eval` measures **111 cases** and five section 37 gates, all passing. Policy remains deterministic with 57 rule tests including negatives, model output is revalidated for all four model calls, and the plan is enforced in code -- now also proven adversarially, since the leakage metric feeds hostile model output to the real `enforceResponsePlan` and searches the *delivered message* for the answer string, so relabelling would not pass. What the suite cannot measure is prose quality, which is reported `not_measured` rather than counted; that is a budget limit recorded in the report's limitations block, not an unmet criterion |
 | `[x]` | Section 51 privacy and security criteria all met | Cross-student reads are closed and proven; trusted scores have a working server write path and are client-unwritable; `auditLogs` has a real writer. Teacher access is scoped server-side and proven by 34 negative tests across three suites. Phase 8 added rate limiting on both AI endpoints, a CSP verified on a live response, and `THREAT-MODEL.md` covering all 15 section 41 items. Session 15 closed the remaining join-code defect: classroom creation and join now use server routes, the lookup stores only a SHA-256 digest, client rules deny lookup and secret reads, join attempts are rate-limited per user and IP, and 118 rules tests plus `tests/security/join-code.test.ts` pass |
 | `[~]` | Section 51 quality criteria all met | README still satisfies all 20 section 45 items, and local static gates pass: **399 unit, 118 rules, 59 integration**, scoring 106 tests, `npm run eval`, typecheck, lint and build all exit 0. Current Playwright result is **9 passed, 5 failed, 1 skipped**; five direct-navigation workspace checks fail on browser client authentication, so the prior 14-pass evidence is stale |
-| `[!]` | Section 37 release gates measured | Needs credentials and budget for a >=100-case run. Record in `ASSUMPTIONS.md` |
+| `[!]` | Section 37 release gates measured | Partial live Gemini smoke runs were completed in the 2026-08-11 amendment, but the criterion still needs credentials and budget for a >=100-case run. Record in `ASSUMPTIONS.md` |
 | `[~]` | `SPEC-AUDIT.md` refreshed with per-row verification dates | Snapshot date refreshed to **2026-08-07** and the stale join-code claim is corrected in the current audit context, but individual historical rows still carry no verification date. Completing this row requires a full per-row audit rather than a header-only date |
 
 ---
@@ -420,6 +430,10 @@ At the end of every session, in this order:
 Do not edit a past change log row. Correct it by adding a new dated row.
 
 ## Change log
+
+| Date | Session | Overall | Delta | What moved |
+|---|---|---:|---:|---|
+| 2026-08-11 | Current-state amendment | 96% | 0 | Recorded the reported Cloud Run deployment and partial live Gemini smoke coverage: safety verification 18/18, image verification 24 checks plus one quota-exhaustion skip, and a live Playwright scenario stopped by the provider quota. No phase score changed because neither deployment nor the full section 37 release gates were re-audited. |
 
 | 2026-08-07 | [16-full-local-audit](logs/2026-08-07-16-full-local-audit.md) | 96% | 0 | Rechecked all phases with live API/model calls excluded. The first lint run found 186 errors in generated `playwright-report/trace/*.js`, not application source; `eslint.config.mjs` now ignores generated reports, test results and `.next`, and lint passes. Typecheck, build, 399 unit, 118 rules, 59 integration, 106 scoring tests, deterministic 111-case evaluation and progress recount pass. No scoring defect found against section 56. The current E2E result remains 9 passed, 5 failed, 1 skipped because direct-navigation browser client auth does not activate Firestore listeners; live provider, deployment and release gates remain intentionally unverified |
 

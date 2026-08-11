@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 -H 0.0.0.0",
+    "dev:gemini": "AI_MODEL_DRIVER=live FIREBASE_STORAGE_EMULATOR_HOST=127.0.0.1:9199 next dev -p 3000 -H 0.0.0.0",
     "build": "NODE_ENV=production next build",
     "start": "next start",
     "lint": "eslint .",
@@ -15,6 +16,7 @@
     "test:rules": "firebase emulators:exec --only firestore --project thinkfirst-rules-test \"vitest run --config vitest.rules.config.mts\"",
     "test:integration": "firebase emulators:exec --only firestore --project thinkfirst-huythedeev \"vitest run --config vitest.integration.config.mts\"",
     "test:e2e": "playwright test",
+    "test:e2e:gemini": "E2E_LIVE_GEMINI=1 playwright test",
     "eval": "tsx evals/run.ts",
     "seed": "node scripts/seed-demo-classroom.mjs",
     "emulators": "firebase emulators:start --project thinkfirst-huythedeev",

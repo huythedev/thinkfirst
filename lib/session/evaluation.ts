@@ -149,7 +149,7 @@ export interface EvaluationContext {
 export async function evaluateAttempt(
   context: EvaluationContext,
 ): Promise<{ evaluation: AttemptEvaluation; available: boolean; modelName: string }> {
-  const modelName = process.env.GEMINI_EVALUATOR_MODEL || 'gemini-3.5-flash';
+  const modelName = process.env.GEMINI_EVALUATOR_MODEL || 'gemini-3.6-flash';
 
   const prompt =
     `Problem: ${context.problem}\n` +
@@ -198,7 +198,7 @@ export async function generateTransferProblem(context: {
   grade: number;
   conceptTags: string[];
 }): Promise<{ problem: TransferProblem; validated: boolean; modelName: string } | null> {
-  const modelName = process.env.GEMINI_TRANSFER_MODEL || 'gemini-2.5-pro';
+  const modelName = process.env.GEMINI_TRANSFER_MODEL || 'gemini-3.6-flash';
 
   const prompt =
     `Completed problem: ${context.problem}\n` +
@@ -253,7 +253,7 @@ Expected Grade: ${context.grade}`;
 
       try {
         const valResponse = await getModelClient().models.generateContent({
-          model: process.env.GEMINI_TRANSFER_MODEL || 'gemini-2.5-pro',
+          model: process.env.GEMINI_TRANSFER_MODEL || 'gemini-3.6-flash',
           contents: [{ role: 'user', parts: [{ text: validationPrompt }] }],
           config: {
             responseMimeType: 'application/json',

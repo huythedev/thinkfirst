@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
     const ai = getModelClient();
 
     // 2. Classify intent.
-    const classifierModel = process.env.GEMINI_CLASSIFIER_MODEL || 'gemini-3.5-flash';
+    const classifierModel = process.env.GEMINI_CLASSIFIER_MODEL || 'gemini-3.6-flash';
     const intentResponse = await ai.models.generateContent({
       model: classifierModel,
       contents: [{ role: 'user', parts: [{ text: CLASSIFIER_PROMPT_V1 + '\n\n' + fullContext }] }],
@@ -226,7 +226,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. Generate the tutor response inside those constraints.
-    const tutorModel = process.env.GEMINI_TUTOR_MODEL || 'gemini-2.5-pro';
+    const tutorModel = process.env.GEMINI_TUTOR_MODEL || 'gemini-3.6-flash';
 
     const tutorSystemContext = `Grade: ${policy.grade}
 Language: ${policy.language}
@@ -291,7 +291,7 @@ Action Plan: ${responsePlan.action}`;
 
       try {
         const judgeResponse = await ai.models.generateContent({
-          model: process.env.GEMINI_DISCLOSURE_JUDGE_MODEL || 'gemini-3.5-flash',
+          model: process.env.GEMINI_DISCLOSURE_JUDGE_MODEL || 'gemini-3.6-flash',
           contents: [{ role: 'user', parts: [{ text: judgePrompt }] }],
           config: {
             responseMimeType: 'application/json',

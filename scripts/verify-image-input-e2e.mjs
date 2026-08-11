@@ -18,6 +18,8 @@
  * Usage: node scripts/verify-image-input-e2e.mjs [baseUrl]
  */
 
+import { createProblemImage } from './make-problem-image.mjs';
+
 const baseUrl = process.argv[2] ?? 'http://localhost:3300';
 const AUTH_HOST = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST ?? '127.0.0.1:9099';
 const FIRESTORE_HOST = process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST ?? '127.0.0.1:8085';
@@ -81,10 +83,6 @@ function be32(value) {
   return [(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff];
 }
 
-function be16(value) {
-  return [(value >>> 8) & 0xff, value & 0xff];
-}
-
 function pngChunk(type, body) {
   return [...be32(body.length), ...Array.from(type, (c) => c.charCodeAt(0)), ...body, 0, 0, 0, 0];
 }
@@ -95,22 +93,6 @@ function png(width, height) {
     ...pngChunk('IHDR', [...be32(width), ...be32(height), 8, 6, 0, 0, 0]),
     ...pngChunk('IDAT', new Array(400).fill(0x55)),
     ...pngChunk('IEND', []),
-  ]);
-}
-
-function jpegWithExif(width, height) {
-  const exifBody = [
-    ...Array.from('Exif\0\0', (c) => c.charCodeAt(0)),
-    ...Array.from('GPSLatitude=10.762622', (c) => c.charCodeAt(0)),
-  ];
-  return Uint8Array.from([
-    0xff, 0xd8,
-    0xff, 0xe1, ...be16(exifBody.length + 2), ...exifBody,
-    0xff, 0xc0, ...be16(17), 8, ...be16(height), ...be16(width), 3,
-    1, 0x11, 0, 2, 0x11, 1, 3, 0x11, 1,
-    0xff, 0xda, ...be16(12), 3, 1, 0, 2, 0x11, 3, 0x11, 0, 0x3f, 0,
-    ...new Array(300).fill(0x42),
-    0xff, 0xd9,
   ]);
 }
 
@@ -212,9 +194,16 @@ async function main() {
   check('an empty file is refused', empty.status === 400, `got ${empty.status}`);
 
   console.log('\nUpload, storage and extraction');
-  const accepted = await upload(student.idToken, jpegWithExif(1200, 900), 'problem.jpg', 'image/jpeg');
+  // The other images in this script are deliberately minimal byte sequences for
+  // validation negatives. Gemini must receive a truly decodable image with real
+  // pixels, so reuse the production-like PNG encoder used by the live extractor
+  // smoke test rather than sending a JPEG header with no scan data.
+  const problemImage = createProblemImage(['SOLVE FOR X', '3X + 7 = 22']);
+  const expectedWidth = problemImage.readUInt32BE(16);
+  const expectedHeight = problemImage.readUInt32BE(20);
+  const accepted = await upload(student.idToken, problemImage, 'problem.png', 'image/png');
   check(
-    'a valid JPEG is accepted',
+    'a valid problem PNG is accepted',
     accepted.status === 200 && typeof accepted.body?.imageId === 'string',
     `got ${accepted.status} ${JSON.stringify(accepted.body)?.slice(0, 200)}`,
   );
@@ -236,20 +225,21 @@ async function main() {
     );
 
     check(
-      'EXIF metadata was stripped before storage',
+      'metadata was stripped before storage',
       fields.metadataStripped?.booleanValue === true,
       JSON.stringify(fields.metadataStripped),
     );
 
     check(
       'the sniffed content type is recorded, not the declared one',
-      fields.contentType?.stringValue === 'image/jpeg',
+      fields.contentType?.stringValue === 'image/png',
       JSON.stringify(fields.contentType),
     );
 
     check(
       'dimensions read from the file header are recorded',
-      fields.width?.integerValue === '1200' && fields.height?.integerValue === '900',
+      fields.width?.integerValue === String(expectedWidth) &&
+        fields.height?.integerValue === String(expectedHeight),
       `${fields.width?.integerValue}x${fields.height?.integerValue}`,
     );
 

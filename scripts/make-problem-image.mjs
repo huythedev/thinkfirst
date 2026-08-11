@@ -13,6 +13,7 @@
 
 import { deflateSync } from 'node:zlib';
 import { writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 const FONT = {
   '0': ['01110', '10001', '10011', '10101', '11001', '10001', '01110'],
@@ -142,10 +143,18 @@ function encodePng({ pixels, width, height }) {
   ]);
 }
 
-const outputPath = process.argv[2] ?? 'problem.png';
-const lines =
-  process.argv.length > 3 ? process.argv.slice(3) : ['SOLVE FOR X', '3X + 7 = 22'];
+export function createProblemImage(lines = ['SOLVE FOR X', '3X + 7 = 22']) {
+  return encodePng(renderLines(lines));
+}
 
-const png = encodePng(renderLines(lines));
-writeFileSync(outputPath, png);
-console.log(`wrote ${outputPath} (${png.length} bytes)`);
+// Keep the command-line image generator while allowing the live verification
+// script to reuse the exact same valid-pixel encoder in memory.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const outputPath = process.argv[2] ?? 'problem.png';
+  const lines =
+    process.argv.length > 3 ? process.argv.slice(3) : ['SOLVE FOR X', '3X + 7 = 22'];
+
+  const png = createProblemImage(lines);
+  writeFileSync(outputPath, png);
+  console.log(`wrote ${outputPath} (${png.length} bytes)`);
+}
