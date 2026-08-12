@@ -215,7 +215,25 @@ service cloud.firestore {
       allow create: if isSignedIn() &&
         request.resource.data.studentId == request.auth.uid &&
         request.resource.data.status == 'active' &&
-        request.resource.data.currentHintLevel == 0;
+        request.resource.data.currentHintLevel == 0 &&
+        request.resource.data.keys().hasOnly([
+          'studentId', 'subject', 'grade', 'language', 'mode', 'strictness',
+          'status', 'originalProblem', 'imageId', 'currentHintLevel',
+          'startedAt', 'policyVersion', 'scoringVersion'
+        ]) &&
+        request.resource.data.subject in ['mathematics', 'science'] &&
+        request.resource.data.grade is int &&
+        request.resource.data.grade >= 1 && request.resource.data.grade <= 12 &&
+        request.resource.data.language in ['en', 'vi'] &&
+        request.resource.data.mode in ['learn', 'practice', 'assignment', 'verify'] &&
+        request.resource.data.strictness in ['supportive', 'balanced', 'independence', 'assessment_safe'] &&
+        request.resource.data.originalProblem is string &&
+        request.resource.data.originalProblem.size() > 0 &&
+        request.resource.data.originalProblem.size() <= 20000 &&
+        request.resource.data.policyVersion is string &&
+        request.resource.data.scoringVersion is string &&
+        request.resource.data.startedAt == request.time &&
+        (!('imageId' in request.resource.data) || request.resource.data.imageId is string);
       // currentHintLevel is deliberately absent from the writable set. It is the
       // position on the hint ladder, which is an educational policy decision, so
       // the tutoring endpoint advances it with Admin credentials. A browser that
@@ -229,6 +247,13 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status', 'scratchpad', 'completedAt', 'updatedAt']) &&
         request.resource.data.status in ['active', 'completed', 'abandoned'] &&
+        (
+          (request.resource.data.status == resource.data.status &&
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['completedAt'])) ||
+          (resource.data.status == 'active' &&
+            request.resource.data.status in ['completed', 'abandoned'] &&
+            request.resource.data.completedAt == request.time)
+        ) &&
         (!('scratchpad' in request.resource.data) ||
           (request.resource.data.scratchpad is string &&
            request.resource.data.scratchpad.size() <= 20000));
@@ -256,7 +281,17 @@ service cloud.firestore {
       allow create: if isSignedIn() &&
         request.resource.data.studentId == request.auth.uid &&
         request.resource.data.actor == 'student' &&
-        ownsSession(request.resource.data.sessionId);
+        ownsSession(request.resource.data.sessionId) &&
+        request.resource.data.keys().hasOnly([
+          'sessionId', 'studentId', 'actor', 'content', 'sequence', 'createdAt'
+        ]) &&
+        request.resource.data.sessionId is string &&
+        request.resource.data.content is string &&
+        request.resource.data.content.size() > 0 &&
+        request.resource.data.content.size() <= 20000 &&
+        request.resource.data.sequence is int &&
+        request.resource.data.sequence >= 0 &&
+        request.resource.data.createdAt is timestamp;
       allow update, delete: if false;
     }
 

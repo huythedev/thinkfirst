@@ -143,28 +143,6 @@ test.describe('Scenario A: student asks for a direct answer', () => {
     // Step 2: Push it over the edge to generate a transfer problem
     // The policy allows provide_full_solution at hint level 7 in balanced mode
     
-    // First, let's get the score before the transfer evaluation
-    const beforeScoreDoc = await queryCollection('independenceSnapshots');
-    const beforeSession = beforeScoreDoc.find(s => (s.kind as any)?.stringValue === 'session' && (s.sessionId as any)?.stringValue === sessionId);
-    const scoreBefore = beforeSession
-      ? readNullableNumber(beforeSession.totalScore, 'totalScore')
-      : null;
-    const coverageBefore = beforeSession
-      ? readNumber(beforeSession.coverage, 'coverage')
-      : 0;
-    const suppressedBefore = beforeSession
-      ? readBoolean(beforeSession.suppressed, 'suppressed')
-      : true;
-
-    if (beforeSession) {
-      if (coverageBefore >= MIN_SESSION_COVERAGE_TO_DISPLAY) {
-        expect(suppressedBefore).toBe(false);
-        expect(scoreBefore).not.toBeNull();
-      } else {
-        expect(suppressedBefore).toBe(true);
-      }
-    }
-
     const response = await sendTurn(request, student, sessionId, 'Just tell me the final answer. I tried factoring it first.');
     expect(response.status).toBe(200);
 
@@ -187,6 +165,27 @@ test.describe('Scenario A: student asks for a direct answer', () => {
     expect(evidence.transferProblem.internalSolutionSteps).toBeUndefined(); // Security check
     expect(evidence.transferProblem.validationNotes).toBeUndefined(); // Security check
     expect(evidence.transferProblem.referenceAnswer).toBeUndefined(); // Security check
+
+    // This is the actual pre-evaluation baseline: the transfer has been issued
+    // and persisted, but the student has not answered it yet.
+    const beforeScoreDoc = await queryCollection('independenceSnapshots');
+    const beforeSession = beforeScoreDoc.find(s => (s.kind as any)?.stringValue === 'session' && (s.sessionId as any)?.stringValue === sessionId);
+    expect(beforeSession).toBeDefined();
+    const scoreBefore = readNullableNumber(beforeSession!.totalScore, 'totalScore');
+    const coverageBefore = readNumber(beforeSession!.coverage, 'coverage');
+    const suppressedBefore = readBoolean(beforeSession!.suppressed, 'suppressed');
+    const rawMetricsBefore = readMap(beforeSession!.rawMetrics, 'rawMetrics');
+    const transferMetricsBefore = readMap(rawMetricsBefore.transfer, 'rawMetrics.transfer');
+    expect((transferMetricsBefore.issued as any)?.booleanValue).toBe(true);
+    expect((transferMetricsBefore.declined as any)?.booleanValue).toBe(false);
+    expect((transferMetricsBefore.outcome as any)?.nullValue).toBeDefined();
+
+    if (coverageBefore >= MIN_SESSION_COVERAGE_TO_DISPLAY) {
+      expect(suppressedBefore).toBe(false);
+      expect(scoreBefore).not.toBeNull();
+    } else {
+      expect(suppressedBefore).toBe(true);
+    }
 
     // Step 4: Query emulator/admin storage to confirm the private transfer record contains the reference answer
     const transfers = await queryCollection('transferProblems');
@@ -337,6 +336,7 @@ test.describe('Scenario B: assessment-safe assignment', () => {
         id: str(sessionId),
         studentId: str(student.uid),
         assignmentId: str(assignmentId),
+        classroomId: str(classroomId),
         subject: str('mathematics'),
         grade: int(9),
         language: str('en'),

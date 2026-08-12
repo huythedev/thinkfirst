@@ -86,6 +86,8 @@ export default function NewSession() {
         // follows this id to the document it wrote itself.
         ...(extraction ? { imageId: extraction.imageId } : {}),
         currentHintLevel: 0,
+        // The rule requires the server timestamp transform, preventing a client
+        // from backdating or future-dating a session to influence recency.
         startedAt: serverTimestamp(),
         // Read from the section 36 registry rather than written out here. These
         // were hardcoded as `policy-v1` and `scoring-v1`, and both had gone stale:

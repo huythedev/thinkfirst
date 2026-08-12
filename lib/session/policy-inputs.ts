@@ -261,12 +261,13 @@ export async function resolvePolicyInputs(
   const classroomId = typeof session.classroomId === 'string' ? session.classroomId : null;
   const imageId = typeof session.imageId === 'string' ? session.imageId : null;
 
-  const [assignmentSnapshot, classroomSnapshot, profileSnapshot, imageSnapshot, assignmentReferenceSnapshot] = await Promise.all([
+  const [assignmentSnapshot, classroomSnapshot, profileSnapshot, imageSnapshot, assignmentReferenceSnapshot, membershipSnapshot] = await Promise.all([
     assignmentId ? adminDb.collection('assignments').doc(assignmentId).get() : null,
     classroomId ? adminDb.collection('classrooms').doc(classroomId).get() : null,
     adminDb.collection('studentProfiles').doc(uid).get(),
     imageId ? adminDb.collection('problemImages').doc(imageId).get() : null,
     assignmentId ? adminDb.collection('assignmentReferences').doc(assignmentId).get() : null,
+    classroomId ? adminDb.collection('classroomMemberships').doc(`${classroomId}__${uid}`).get() : null,
   ]);
 
   const assignment =
@@ -281,10 +282,22 @@ export async function resolvePolicyInputs(
   const assignmentReference =
     assignmentReferenceSnapshot?.exists ? ((assignmentReferenceSnapshot.data() ?? {}) as Record<string, unknown>) : null;
 
+  const membership =
+    membershipSnapshot?.exists ? ((membershipSnapshot.data() ?? {}) as Record<string, unknown>) : null;
+
   // An assignment must belong to the classroom the session claims, otherwise a
   // session could point at a lenient assignment from elsewhere.
   const assignmentBelongs =
-    assignment !== null && (classroomId === null || assignment.classroomId === classroomId);
+    assignment !== null &&
+    classroomId !== null &&
+    assignment.classroomId === classroomId &&
+    membership?.status === 'active';
+
+  // Assignment policy and its protected reference are authoritative only after
+  // proving the session is bound to that assignment's classroom and the caller
+  // is an active member.  This endpoint uses Admin credentials, so rules do not
+  // provide this check for us.
+  if (assignmentId && !assignmentBelongs) return { status: 'forbidden' };
 
   return {
     status: 'ok',

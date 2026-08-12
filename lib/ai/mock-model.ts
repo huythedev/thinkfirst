@@ -57,7 +57,9 @@ function latestStudentMessage(userText: string): string {
   return (last?.[1] ?? userText).trim();
 }
 
-const SELF_HARM = ['kill myself', 'end my life', 'want to die', 'hurt myself', 'not want to be here', 'khong muon song'];
+// This deterministic fixture verifies downstream safety routing for these known
+// phrases; it makes no claim about real-model safety recall.
+const SELF_HARM = ['kill myself', 'end my life', 'want to die', 'hurt myself', 'not want to be here', 'i do not want to be alive any more', 'khong muon song'];
 const ABUSE = ['hits me', 'hurts me at home', 'afraid to go home'];
 const BULLYING = ['bullying', 'threatening me', 'they pick on me'];
 const OFF_TOPIC = ['football', 'poem', 'joke', 'video game', 'movie'];

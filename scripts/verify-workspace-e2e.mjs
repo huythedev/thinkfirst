@@ -118,6 +118,7 @@ async function writeTurn(uid, sessionId, idToken, sequence, actor, content) {
         sequence: { integerValue: String(sequence) },
         actor: { stringValue: actor },
         content: { stringValue: content },
+        createdAt: { timestampValue: new Date().toISOString() },
       },
     }),
   });
@@ -282,6 +283,7 @@ async function main() {
         sequence: { integerValue: '2' },
         actor: { stringValue: 'student' },
         content: { stringValue: 'I subtracted 3 from both sides.' },
+        createdAt: { timestampValue: new Date().toISOString() },
       },
     }),
   });

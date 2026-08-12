@@ -141,6 +141,47 @@ describe('POST /api/session/chat', () => {
     expect(modelSpy).toHaveBeenCalledTimes(2);
   });
 
+  test('no trusted reference with a direct leak is withheld without invoking a judge', async () => {
+    mockPolicy.referenceAnswer = undefined;
+    modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({
+        messageMarkdown: 'x = 5',
+        responseType: 'hint',
+        hintLevel: 1,
+        finalAnswerIncluded: false,
+        internalConceptTags: [],
+      }),
+    });
+
+    const res = await POST(validRequest());
+    const data = await res.json();
+
+    expect(data.tutorData.messageMarkdown).toContain('I started to answer with more than you should see at this point');
+    expect(modelSpy).toHaveBeenCalledTimes(2);
+  });
+
+  test('no trusted reference with harmless but unverifiable prose uses the deterministic fallback', async () => {
+    mockPolicy.referenceAnswer = undefined;
+    modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({
+        messageMarkdown: 'Try subtracting three from both sides first.',
+        responseType: 'hint',
+        hintLevel: 1,
+        finalAnswerIncluded: false,
+        internalConceptTags: [],
+      }),
+    });
+
+    const res = await POST(validRequest());
+    const data = await res.json();
+
+    expect(data.tutorData.messageMarkdown).toContain('I started to answer with more than you should see at this point');
+    expect(data.tutorData.messageMarkdown).not.toContain('Try subtracting three');
+    expect(modelSpy).toHaveBeenCalledTimes(2);
+  });
+
   test('B. semantic judge leak blocks', async () => {
     modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
     modelSpy.mockResolvedValueOnce({

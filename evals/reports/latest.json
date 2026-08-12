@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T03:26:03.287Z",
+  "generatedAt": "2026-08-12T04:43:56.429Z",
   "totalCases": 123,
   "driver": "deterministic",
   "categoryCoverage": [
@@ -129,8 +129,8 @@
       "rate": 100
     },
     "diagnosticBreakdowns": {
-      "semanticChecksUnavailable": 4,
-      "semanticLeaksDetected": 14,
+      "semanticChecksUnavailable": 18,
+      "semanticLeaksDetected": 0,
       "metadataLeaksDetected": 0
     }
   },

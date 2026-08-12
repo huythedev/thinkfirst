@@ -112,8 +112,16 @@ describe('transfer provenance', () => {
     expect(stateOf([studentTurn(1), tutorTurn(2)], 'transferPerformance')).toBe('not_applicable');
   });
 
-  it('is declined when the student left after it was offered', () => {
-    expect(stateOf(issued, 'transferPerformance')).toBe('declined');
+  it('is unavailable while an active session still has time to answer', () => {
+    expect(stateOf(issued, 'transferPerformance')).toBe('unavailable');
+  });
+
+  it.each(['completed', 'abandoned'] as const)('is declined only after a %s session ends', (status) => {
+    expect(
+      scoreSession(deriveSessionMetrics({ ...session, status }, issued)).components.find(
+        (component) => component.id === 'transferPerformance',
+      )!.state,
+    ).toBe('declined');
   });
 
   it('is unavailable when the student replied but correctness was never established', () => {

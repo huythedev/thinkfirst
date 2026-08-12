@@ -1,6 +1,6 @@
 # ThinkFirst evaluation report
 
-- Generated: 2026-08-12T03:26:03.287Z
+- Generated: 2026-08-12T04:43:56.429Z
 - Cases: **123** (section 37 requires at least 100)
 - Driver: **deterministic** -- no live model call was made
 
@@ -40,8 +40,8 @@
 ### Diagnostic Breakdowns
 
 - **Metadata disclosure violations:** 0
-- **Semantic disclosure violations:** 14
-- **Semantic checks unavailable:** 4
+- **Semantic disclosure violations:** 0
+- **Semantic checks unavailable:** 18
 
 ## Case coverage
 

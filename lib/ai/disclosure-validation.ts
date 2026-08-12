@@ -32,6 +32,20 @@ export interface DisclosureValidationResult {
   reason: string;
 }
 
+/**
+ * The disclosure boundary is intentionally stricter than the validator result:
+ * when a full solution is forbidden, generated prose may leave the server only
+ * after an explicit safe verdict.  Keep this decision shared by the route and
+ * deterministic evaluation harness so they cannot drift into different
+ * fail-open behavior.
+ */
+export function shouldWithholdForDisclosure(
+  fullSolutionAllowedThisTurn: boolean,
+  result: DisclosureValidationResult,
+): boolean {
+  return !fullSolutionAllowedThisTurn && result.verdict !== 'safe';
+}
+
 export function validateSemanticDisclosure(input: DisclosureValidationInput): DisclosureValidationResult {
   if (input.fullSolutionAllowedThisTurn) {
     return { verdict: 'safe', confidence: 1, reason: 'Full solution authorized this turn.' };

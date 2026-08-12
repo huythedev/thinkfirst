@@ -6,7 +6,7 @@ import {
   initializeTestEnvironment,
   RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 /**
@@ -448,6 +448,24 @@ describe('cross-student session isolation', () => {
         sequence: 2,
         actor: 'student',
         content: 'next step',
+        createdAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  it('rejects trusted scoring and policy metadata on a client student turn', async () => {
+    await seed();
+    await assertFails(
+      setDoc(doc(asStudentA(), 'sessionTurns', 'turn-forged-metadata'), {
+        sessionId: 'session-a',
+        studentId: STUDENT_A,
+        sequence: 2,
+        actor: 'student',
+        content: 'I tried factoring.',
+        createdAt: serverTimestamp(),
+        intentAnalysis: { attemptQuality: 'meaningful' },
+        responsePlan: { allowedHintLevel: 7, generateTransferProblem: true },
+        tutorMetadata: { estimatedDifficulty: 5 },
       }),
     );
   });
@@ -530,6 +548,57 @@ describe('cross-student session isolation', () => {
     );
   });
 
+  it('only accepts the standalone session creation schema and trusted current time', async () => {
+    await seed();
+    await assertSucceeds(
+      setDoc(doc(asStudentA(), 'learningSessions', 'session-legitimate'), {
+        studentId: STUDENT_A,
+        subject: 'mathematics',
+        grade: 8,
+        language: 'en',
+        mode: 'practice',
+        strictness: 'balanced',
+        status: 'active',
+        originalProblem: 'Solve 2x = 8',
+        currentHintLevel: 0,
+        startedAt: serverTimestamp(),
+        policyVersion: 'policy-v2',
+        scoringVersion: 'scoring-v2',
+      }),
+    );
+  });
+
+  it('rejects trusted fields and forged startedAt on client session creation', async () => {
+    await seed();
+    const base = {
+      studentId: STUDENT_A,
+      subject: 'mathematics', grade: 8, language: 'en', mode: 'practice',
+      strictness: 'balanced', status: 'active', originalProblem: 'Solve 2x = 8',
+      currentHintLevel: 0, startedAt: new Date('2099-01-01'),
+      policyVersion: 'policy-v2', scoringVersion: 'scoring-v2',
+    };
+    await assertFails(setDoc(doc(asStudentA(), 'learningSessions', 'session-backdated'), base));
+    await assertFails(setDoc(doc(asStudentA(), 'learningSessions', 'session-assigned'), {
+      ...base, startedAt: serverTimestamp(), assignedDifficulty: 5,
+    }));
+    await assertFails(setDoc(doc(asStudentA(), 'learningSessions', 'session-error'), {
+      ...base, startedAt: serverTimestamp(), endedWithSystemError: true,
+    }));
+  });
+
+  it('allows only a timestamped completion transition', async () => {
+    await seed();
+    await assertFails(updateDoc(doc(asStudentA(), 'learningSessions', 'session-a'), {
+      status: 'completed', completedAt: new Date('2099-01-01'),
+    }));
+    await assertFails(updateDoc(doc(asStudentA(), 'learningSessions', 'session-a'), {
+      completedAt: new Date('2000-01-01'),
+    }));
+    await assertSucceeds(updateDoc(doc(asStudentA(), 'learningSessions', 'session-a'), {
+      status: 'completed', completedAt: serverTimestamp(),
+    }));
+  });
+
   it('a student cannot rewrite the policy version on their session', async () => {
     await seed();
     await assertFails(
@@ -584,7 +653,10 @@ describe('hint ladder is server-owned', () => {
   it('a student may still complete their own session', async () => {
     await seed();
     await assertSucceeds(
-      updateDoc(doc(asStudentA(), 'learningSessions', 'session-a'), { status: 'completed' }),
+      updateDoc(doc(asStudentA(), 'learningSessions', 'session-a'), {
+        status: 'completed',
+        completedAt: serverTimestamp(),
+      }),
     );
   });
 

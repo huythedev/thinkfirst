@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { db } from '@/lib/firebase/config';
-import { doc, onSnapshot, collection, query, where, orderBy, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, orderBy, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { TutorMarkdown } from '@/components/TutorMarkdown';
 import { LiveScorePanel } from '@/components/LiveScorePanel';
 import { useLiveSessionScore } from '@/hooks/use-live-session-score';
@@ -30,8 +30,9 @@ export default function LearningWorkspace() {
   const [transferProblem, setTransferProblem] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Recomputed from the streaming turns, so it moves as the student works.
-  const { score: liveScore } = useLiveSessionScore(session, turns);
+  // The server writes evaluator-backed evidence to a deterministic snapshot.
+  // This listener deliberately never recomputes a score from browser state.
+  const { score: liveScore } = useLiveSessionScore(sessionId ?? null);
 
   useEffect(() => {
     // The signed-out case is derived at render time rather than pushed from this
@@ -110,7 +111,7 @@ export default function LearningWorkspace() {
         actor: 'student' as const,
         content: userMsg,
         sequence: newSequence,
-        createdAt: new Date(),
+        createdAt: serverTimestamp(),
       };
       await setDoc(doc(db, 'sessionTurns', studentTurnId), studentTurnData);
 

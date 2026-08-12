@@ -291,28 +291,50 @@ describe('persistSessionEvidence writes trusted evidence with real credentials',
     expect(record.sessionCount).toBeGreaterThan(0);
   });
 
-  it('clamps profile movement to 8 points using the previously stored score', async () => {
-    const sessionId = await seedSession({ suffix: 'clamp', withRubric: true });
+  it('does not compound the 8-point cap when the same session is recomputed', async () => {
+    const clampStudent = 'evidence-clamp-student';
+    const sessionId = await seedSession({ suffix: 'clamp', studentId: clampStudent, withRubric: true });
 
     // A stored profile far from where the evidence points. §56.4 forbids one
     // session closing that gap in a single step.
     await adminDb
       .collection('independenceSnapshots')
-      .doc(`${STUDENT}__profile__${SCORING_VERSION}`)
+      .doc(`${clampStudent}__profile__${SCORING_VERSION}`)
       .set({
-        studentId: STUDENT,
+        studentId: clampStudent,
         kind: 'profile',
         totalScore: 20,
         scoringVersion: SCORING_VERSION,
         generatedAt: new Date('2026-02-01T09:00:00Z'),
       });
 
-    const previous = await scoring.loadPreviousProfileScore(STUDENT);
+    const previous = await scoring.loadPreviousProfileScore(clampStudent);
     expect(previous).toBe(20);
 
-    const result = await scoring.persistSessionEvidence(STUDENT, sessionId);
+    await scoring.persistSessionEvidence(clampStudent, sessionId);
+    const result = await scoring.persistSessionEvidence(clampStudent, sessionId);
+    const sessionSnapshot = await adminDb.collection('independenceSnapshots')
+      .doc(`${sessionId}__${SCORING_VERSION}`).get();
+    expect(sessionSnapshot.data()?.profileBaselineScore).toBe(20);
     if (result.profile.score !== null) {
-      expect(Math.abs(result.profile.score - 20)).toBeLessThanOrEqual(8);
+      expect(result.profile.score).toBeLessThanOrEqual(28);
+      expect(result.profile.score).toBeGreaterThanOrEqual(12);
+    }
+  });
+
+  it('uses the same fixed baseline for downward movement on repeated recomputations', async () => {
+    const clampStudent = 'evidence-downward-clamp-student';
+    const sessionId = await seedSession({ suffix: 'downward-clamp', studentId: clampStudent, withTransfer: 'declined' });
+    await adminDb.collection('independenceSnapshots').doc(`${clampStudent}__profile__${SCORING_VERSION}`).set({
+      studentId: clampStudent, kind: 'profile', totalScore: 90,
+      scoringVersion: SCORING_VERSION, generatedAt: new Date('2026-02-01T09:00:00Z'),
+    });
+
+    await scoring.persistSessionEvidence(clampStudent, sessionId);
+    const result = await scoring.persistSessionEvidence(clampStudent, sessionId);
+    if (result.profile.score !== null) {
+      expect(result.profile.score).toBeGreaterThanOrEqual(82);
+      expect(result.profile.score).toBeLessThanOrEqual(98);
     }
   });
 });

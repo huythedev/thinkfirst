@@ -154,6 +154,27 @@ export async function loadPreviousProfileScore(studentId: string): Promise<numbe
   return documents[0]?.score ?? null;
 }
 
+/**
+ * The cap is per session, not per persistence attempt.  On its first write a
+ * session records the profile that existed before it contributed; subsequent
+ * writes reuse that immutable baseline rather than treating the last write from
+ * the same session as a new starting point.
+ */
+async function loadProfileBaselineForSession(
+  studentId: string,
+  sessionId: string,
+): Promise<number | null> {
+  const sessionSnapshot = await adminDb
+    .collection('independenceSnapshots')
+    .doc(`${sessionId}__${SCORING_VERSION}`)
+    .get();
+  const storedBaseline = sessionSnapshot.exists
+    ? (sessionSnapshot.data() as Record<string, unknown>).profileBaselineScore
+    : null;
+  if (typeof storedBaseline === 'number') return storedBaseline;
+  return loadPreviousProfileScore(studentId);
+}
+
 /** Weighted 0-100 points for the section 28 `components` field shape. */
 function weightedPoints(component: ComponentScore | undefined): number | null {
   if (!component || component.value === null) return null;
@@ -217,9 +238,9 @@ export async function persistSessionEvidence(
   studentId: string,
   sessionId: string,
 ): Promise<PersistResult> {
-  const [allMetrics, previousScore] = await Promise.all([
+  const [allMetrics, profileBaselineScore] = await Promise.all([
     loadSessionMetrics(studentId),
-    loadPreviousProfileScore(studentId),
+    loadProfileBaselineForSession(studentId, sessionId),
   ]);
 
   const metrics =
@@ -238,7 +259,7 @@ export async function persistSessionEvidence(
         scoringVersion: SCORING_VERSION,
       };
 
-  const profile = computeIndependenceProfile(allMetrics, previousScore);
+  const profile = computeIndependenceProfile(allMetrics, profileBaselineScore);
 
   const sessionSnapshotId = `${sessionId}__${SCORING_VERSION}`;
   const profileSnapshotId = `${studentId}__profile__${SCORING_VERSION}`;
@@ -259,6 +280,7 @@ export async function persistSessionEvidence(
         componentDetail: serializeComponentDetail(sessionScore.components),
         rawMetrics: metrics ? serializeMetrics(metrics) : null,
         excludedForSystemError: sessionScore.excludedForSystemError,
+        profileBaselineScore,
         scoringVersion: SCORING_VERSION,
         generatedAt: FieldValue.serverTimestamp(),
       }),

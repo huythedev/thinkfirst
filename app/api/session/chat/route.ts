@@ -268,7 +268,11 @@ Action: ${responsePlan.action}`;
       );
     }
 
-    const { validateSemanticDisclosure, judgeSemanticDisclosure } = await import('@/lib/ai/disclosure-validation');
+    const {
+      validateSemanticDisclosure,
+      judgeSemanticDisclosure,
+      shouldWithholdForDisclosure,
+    } = await import('@/lib/ai/disclosure-validation');
     let semanticResult = validateSemanticDisclosure({
       messageMarkdown: tutorParse.value.messageMarkdown,
       referenceAnswer: policy.referenceAnswer ?? null,
@@ -296,7 +300,15 @@ Action: ${responsePlan.action}`;
       }
     }
 
-    const enforcement = enforceResponsePlan(tutorParse.value, responsePlan, policy.language, semanticResult.verdict === 'leak');
+    // `unavailable` is not permission to disclose.  Without a trusted reference
+    // there is no authoritative semantic clearance, so the plan-safe fallback is
+    // the only response that may reach the student.
+    const enforcement = enforceResponsePlan(
+      tutorParse.value,
+      responsePlan,
+      policy.language,
+      shouldWithholdForDisclosure(isFullSolutionAllowedThisTurn(responsePlan), semanticResult),
+    );
     const tutorData: TutorResponse = enforcement.response;
 
     if (enforcement.violations.length > 0) {
@@ -578,7 +590,7 @@ interface EvidenceSummary {
   attemptEvaluated: boolean;
   transferIssued: boolean;
   transferEvaluated?: boolean;
-  /** Present only when a score is not suppressed by §56.4. */
+  /** Session-level persisted score, never a mixed profile/session summary. */
   score: number | null;
   coverage: number;
   suppressed: boolean;
@@ -781,9 +793,9 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
 
   try {
     const persisted = await persistSessionEvidence(input.studentId, input.sessionId);
-    summary.score = persisted.profile.score;
+    summary.score = persisted.sessionScore.rawScore;
     summary.coverage = persisted.sessionScore.coverage;
-    summary.suppressed = persisted.profile.suppressed;
+    summary.suppressed = persisted.sessionScore.displaySuppressed;
   } catch (error) {
     console.error(
       'Failed to persist independence snapshot:',

@@ -1,8 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { COMPONENT_WEIGHTS } from '@/lib/scoring/independence';
-import { ComponentScore, SessionScore } from '@/lib/types/scoring';
+import { ComponentScore, ComponentId, SessionScore } from '@/lib/types/scoring';
 import { useTranslation } from '@/lib/i18n/client';
 import { SessionBehaviorsModal } from './ExplanationModals';
 
@@ -14,7 +13,7 @@ interface LiveScorePanelProps {
  * Order matters: this mirrors the learning loop in section 55, so the student
  * reads it as a sequence of things to do rather than a list of judgements.
  */
-const DISPLAY_ORDER: (keyof typeof COMPONENT_WEIGHTS)[] = [
+const DISPLAY_ORDER: ComponentId[] = [
   'firstAttempt',
   'hintEfficiency',
   'reasoningExplanation',

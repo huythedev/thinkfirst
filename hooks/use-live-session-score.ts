@@ -1,34 +1,49 @@
 'use client';
 
-import { useMemo } from 'react';
-import { scoreSession } from '@/lib/scoring/independence';
-import { deriveSessionMetrics, RawAttempt, RawSession, RawTurn } from '@/lib/scoring/metrics';
-import { SessionMetrics, SessionScore } from '@/lib/types/scoring';
+import { useEffect, useState } from 'react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '@/lib/firebase/config';
+import { SCORING_VERSION, type ComponentScore, type SessionScore } from '@/lib/types/scoring';
 
-interface LiveSessionScore {
-  metrics: SessionMetrics | null;
-  score: SessionScore | null;
+function snapshotToSessionScore(data: Record<string, unknown>, sessionId: string): SessionScore | null {
+  if (data.kind !== 'session' || data.sessionId !== sessionId) return null;
+  const rawScore = typeof data.totalScore === 'number' ? data.totalScore : null;
+  const coverage = typeof data.coverage === 'number' ? data.coverage : 0;
+  const componentDetail = Array.isArray(data.componentDetail)
+    ? data.componentDetail as ComponentScore[]
+    : [];
+
+  return {
+    sessionId,
+    occurredAt: null,
+    rawScore,
+    coverage,
+    displaySuppressed: data.suppressed === true,
+    components: componentDetail,
+    excludedForSystemError: data.excludedForSystemError === true,
+    scoringVersion: typeof data.scoringVersion === 'string' ? data.scoringVersion : SCORING_VERSION,
+  };
 }
 
 /**
- * Derives an in-progress view of the current session from data the workspace
- * already has: turns streaming in over `onSnapshot`, plus the stored attempt
- * evaluations the server wrote.
- *
- * This is a live *indicator*, not the score of record. The score that counts is
- * computed server-side and persisted to `independenceSnapshots`; this exists so
- * the panel can show which behaviors have registered as the student works,
- * without a model call or an extra query per keystroke.
+ * Reads the server-persisted session snapshot.  The browser intentionally does
+ * not derive metrics or score a transcript: evaluator evidence is server-owned
+ * and the persisted snapshot is the sole score of record.
  */
-export function useLiveSessionScore(
-  session: RawSession | null,
-  turns: RawTurn[],
-  attempts: RawAttempt[] = [],
-): LiveSessionScore {
-  return useMemo(() => {
-    if (!session) return { metrics: null, score: null };
+export function useLiveSessionScore(sessionId: string | null): { score: SessionScore | null } {
+  const [score, setScore] = useState<SessionScore | null>(null);
 
-    const metrics = deriveSessionMetrics(session, turns, attempts);
-    return { metrics, score: scoreSession(metrics) };
-  }, [session, turns, attempts]);
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+
+    return onSnapshot(
+      doc(db, 'independenceSnapshots', `${sessionId}__${SCORING_VERSION}`),
+      (snapshot) => setScore(snapshot.exists() ? snapshotToSessionScore(snapshot.data(), sessionId) : null),
+      () => setScore(null),
+    );
+  }, [sessionId]);
+
+  return { score };
 }

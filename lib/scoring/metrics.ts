@@ -121,6 +121,7 @@ function isAnswerSeeking(analysis: Partial<IntentAnalysis>): boolean {
  */
 function collectAnalyses(turns: RawTurn[]): Partial<IntentAnalysis>[] {
   return turns
+    .filter((turn) => turn.actor === 'assistant')
     .map((turn) => turn.intentAnalysis)
     .filter((analysis): analysis is Partial<IntentAnalysis> =>
       Boolean(analysis && Object.keys(analysis).length > 0),
@@ -138,6 +139,7 @@ function resolveDifficulty(
   }
 
   const estimated = turns
+    .filter((turn) => turn.actor === 'assistant')
     .map((turn) => turn.tutorMetadata?.estimatedDifficulty)
     .find((value): value is number => typeof value === 'number' && value >= 1 && value <= 5);
 
@@ -165,7 +167,7 @@ function resolveHintEvidence(turns: RawTurn[]): {
     .map((turn) => turn.tutorMetadata?.hintLevel)
     .filter((level): level is number => typeof level === 'number');
 
-  const allowed = turns
+  const allowed = tutorTurns
     .map((turn) => turn.responsePlan?.['allowedHintLevel'])
     .filter((level): level is number => typeof level === 'number');
 
@@ -251,7 +253,7 @@ function reasoningEvidence(
   }
 
   const explanationRequested = turns.some(
-    (turn) => turn.responsePlan?.['requiresExplanation'] === true,
+    (turn) => turn.actor === 'assistant' && turn.responsePlan?.['requiresExplanation'] === true,
   );
 
   if (!explanationRequested) {
@@ -259,7 +261,7 @@ function reasoningEvidence(
   }
 
   const requestIndex = turns.findIndex(
-    (turn) => turn.responsePlan?.['requiresExplanation'] === true,
+    (turn) => turn.actor === 'assistant' && turn.responsePlan?.['requiresExplanation'] === true,
   );
   const repliedAfter = turns
     .slice(requestIndex + 1)
@@ -296,7 +298,7 @@ function verificationEvidence(
   }
 
   const requestIndex = turns.findIndex(
-    (turn) => turn.responsePlan?.['requiresVerification'] === true,
+    (turn) => turn.actor === 'assistant' && turn.responsePlan?.['requiresVerification'] === true,
   );
   const prompted = session.mode === 'verify' || requestIndex !== -1;
 
@@ -323,14 +325,16 @@ function verificationEvidence(
  * component is `unavailable`, which is the fix for measured defect 6.
  */
 function transferEvidence(
+  session: RawSession,
   turns: RawTurn[],
   attempts: RawAttempt[],
 ): { transfer: TransferEvidence; state: EvidenceState } {
   const transferIndex = turns.findIndex(
     (turn) =>
-      turn.tutorMetadata?.responseType === 'transfer_problem' ||
-      turn.responsePlan?.['generateTransferProblem'] === true ||
-      turn.responsePlan?.['action'] === 'start_transfer_task',
+      turn.actor === 'assistant' &&
+      (turn.tutorMetadata?.responseType === 'transfer_problem' ||
+        turn.responsePlan?.['generateTransferProblem'] === true ||
+        turn.responsePlan?.['action'] === 'start_transfer_task'),
   );
 
   const empty: TransferEvidence = {
@@ -352,6 +356,11 @@ function transferEvidence(
     .some((turn) => turn.actor === 'student');
 
   if (!repliedAfter) {
+    if (session.status !== 'completed' && session.status !== 'abandoned') {
+      // The student is still entitled to answer an issued transfer task.  This
+      // is missing evidence, not a declined opportunity.
+      return { transfer: { ...empty, issued: true }, state: 'unavailable' };
+    }
     // §56.1: the opportunity arose and the student walked away. Scored low, not
     // excluded. Excluding it is measured defect 1, which made disengagement the
     // score-maximizing strategy.
@@ -412,7 +421,7 @@ export function deriveSessionMetrics(
   const hints = resolveHintEvidence(ordered);
   const reasoning = reasoningEvidence(ordered, attempts, studentTurns.length);
   const verification = verificationEvidence(session, ordered, attempts);
-  const transfer = transferEvidence(ordered, attempts);
+  const transfer = transferEvidence(session, ordered, attempts);
   const difficulty = resolveDifficulty(session, ordered);
 
   const answerSeekingSignals = analyses.filter(isAnswerSeeking).length;
@@ -425,7 +434,8 @@ export function deriveSessionMetrics(
     mode: session.mode ?? null,
 
     endedWithSystemError:
-      session.endedWithSystemError === true || ordered.some((turn) => turn.systemError === true),
+      session.endedWithSystemError === true ||
+      ordered.some((turn) => turn.actor === 'assistant' && turn.systemError === true),
 
     difficulty: difficulty.difficulty,
     difficultySource: difficulty.source,
@@ -441,8 +451,9 @@ export function deriveSessionMetrics(
     hintState: hints.state,
     receivedFullSolution: ordered.some(
       (turn) =>
+        turn.actor === 'assistant' &&
         turn.tutorMetadata?.finalAnswerIncluded === true ||
-        (turn.tutorMetadata?.hintLevel ?? 0) >= 7,
+        (turn.actor === 'assistant' && (turn.tutorMetadata?.hintLevel ?? 0) >= 7),
     ),
     accommodationHintLevels: hints.accommodationHintLevels,
 

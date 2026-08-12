@@ -48,6 +48,13 @@ async function seedClassroomSession(suffix: string, overrides: Record<string, un
     defaultStrictness: 'assessment_safe',
   });
 
+  await adminDb.collection('classroomMemberships').doc(`${classroomId}__${STUDENT}`).set({
+    classroomId,
+    userId: STUDENT,
+    role: 'student',
+    status: 'active',
+  });
+
   await adminDb.collection('learningSessions').doc(sessionId).set({
     studentId: STUDENT,
     classroomId,
@@ -118,7 +125,7 @@ describe('resolvePolicyInputs against the emulator', () => {
     expect(result.inputs.mode).toBe('assignment');
   });
 
-  it('ignores an assignment that belongs to a different classroom', async () => {
+  it('rejects an assignment that belongs to a different classroom', async () => {
     const { sessionId } = await seedClassroomSession('foreign-assignment');
     const assignmentId = 'int-assignment-foreign';
 
@@ -132,12 +139,34 @@ describe('resolvePolicyInputs against the emulator', () => {
     await adminDb.collection('learningSessions').doc(sessionId).update({ assignmentId });
 
     const result = await policyInputs.resolvePolicyInputs(sessionId, STUDENT);
-    if (result.status !== 'ok') throw new Error('expected ok');
+    expect(result.status).toBe('forbidden');
+  });
 
-    // Falls back to the classroom rather than honouring a lenient assignment
-    // borrowed from elsewhere.
-    expect(result.inputs.strictness).toBe('assessment_safe');
-    expect(result.inputs.allowFullSolutions).toBeUndefined();
+  it('rejects an assignment id without a classroom binding', async () => {
+    const sessionId = 'int-session-no-classroom-assignment';
+    await adminDb.collection('learningSessions').doc(sessionId).set({
+      studentId: STUDENT,
+      assignmentId: 'int-assignment-no-classroom',
+      subject: 'mathematics', mode: 'assignment', status: 'active', currentHintLevel: 0,
+    });
+    await adminDb.collection('assignments').doc('int-assignment-no-classroom').set({
+      classroomId: 'some-classroom', allowFullSolutions: true,
+    });
+    expect((await policyInputs.resolvePolicyInputs(sessionId, STUDENT)).status).toBe('forbidden');
+  });
+
+  it('rejects a matching foreign classroom assignment without active membership', async () => {
+    const classroomId = 'int-foreign-classroom';
+    const sessionId = 'int-session-foreign-membership';
+    await adminDb.collection('classrooms').doc(classroomId).set({ teacherId: 'teacher' });
+    await adminDb.collection('assignments').doc('int-assignment-foreign-member').set({
+      classroomId, allowFullSolutions: true,
+    });
+    await adminDb.collection('learningSessions').doc(sessionId).set({
+      studentId: STUDENT, classroomId, assignmentId: 'int-assignment-foreign-member',
+      subject: 'mathematics', mode: 'assignment', status: 'active', currentHintLevel: 0,
+    });
+    expect((await policyInputs.resolvePolicyInputs(sessionId, STUDENT)).status).toBe('forbidden');
   });
 
   it('falls back to the student profile when the session has no classroom', async () => {

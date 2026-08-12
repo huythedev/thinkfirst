@@ -1,7 +1,7 @@
 import { generateResponsePlan, type PolicyMode, type PolicyStrictness } from '@/services/ai-gateway/src/policy';
 import { enforceResponsePlan, isFullSolutionAllowedThisTurn, parseIntentAnalysis, parseTutorResponse } from '@/lib/types/ai/model-output';
 import { validateAnswer } from '@/lib/math/validation';
-import { validateSemanticDisclosure } from '@/lib/ai/disclosure-validation';
+import { shouldWithholdForDisclosure, validateSemanticDisclosure } from '@/lib/ai/disclosure-validation';
 import { dispositionFor, composeSafetyResponse, type SafetyCategory } from '@/lib/safety/response';
 import type { IntentAnalysis, TutorResponse } from '@/lib/types/ai/schema';
 import { EVALUATION_CASES } from './dataset';
@@ -351,8 +351,10 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
         internalConceptTags: [],
       };
 
-      // For the harness, we can try to guess the reference answer. It might be in the mathCheck block, or we might need to add it to evaluationCase.
-      const referenceAnswer = evaluationCase.mathCheck?.referenceAnswer ?? hostile.leakedAnswer;
+      // A string the test searches for is not a trusted server-side reference.
+      // Cases without mathCheck deliberately exercise the production no-reference
+      // path instead of granting the harness knowledge production does not have.
+      const referenceAnswer = evaluationCase.mathCheck?.referenceAnswer ?? null;
       const semanticResult = validateSemanticDisclosure({
         messageMarkdown: candidate.messageMarkdown,
         referenceAnswer: referenceAnswer,
@@ -366,10 +368,10 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
         semanticLeaksDetected += 1;
       }
 
-      const isDisclosureForbidden = !isFullSolutionAllowedThisTurn(plan);
-      
-      const deterministicFailedToClear = isDisclosureForbidden && semanticResult.verdict === 'unavailable';
-      const isBlocked = semanticResult.verdict === 'leak' || deterministicFailedToClear;
+      const isBlocked = shouldWithholdForDisclosure(
+        isFullSolutionAllowedThisTurn(plan),
+        semanticResult,
+      );
 
       const enforced = enforceResponsePlan(candidate, plan, evaluationCase.language, isBlocked);
       const delivered = enforced.response.messageMarkdown;
