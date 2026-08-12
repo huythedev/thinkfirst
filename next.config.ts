@@ -69,6 +69,10 @@ const nextConfig: NextConfig = {
     return [{ source: '/:path*', headers: securityHeaders }];
   },
   allowedDevOrigins: [
+    // Playwright's local E2E server is addressed by IP rather than localhost.
+    // Next 16 otherwise blocks its dev-only chunks and leaves the workspace
+    // permanently loading even though the application route itself succeeded.
+    '127.0.0.1',
     'ais-dev-tp7wcazowuqpg6k2jcki3l-639123902441.asia-east1.run.app',
     'ais-pre-tp7wcazowuqpg6k2jcki3l-639123902441.asia-east1.run.app'
   ],

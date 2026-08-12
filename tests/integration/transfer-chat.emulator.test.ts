@@ -164,8 +164,10 @@ describe('Transfer Chat Integration', () => {
     expect(attempts.size).toBeGreaterThan(0);
     const data = attempts.docs[0].data();
     
-    expect(data.transfer.outcome).toBe('independent_correct');
-    expect(data.transfer.correctnessSource).toBe('deterministic');
-    expect(data.transfer.studentAnswer).toBe('x = 4'); // NOT 'wrong-eval-answer'
+    // Transfer evidence is persisted inside the server-authored evaluation
+    // payload, which is the schema `deriveSessionMetrics` consumes.
+    expect(data.evaluation.transferOutcome).toBe('independent_correct');
+    expect(data.evaluation.correctnessSource).toBe('deterministic');
+    expect(data.evaluation.studentAnswer).toBe('x = 4'); // NOT 'wrong-eval-answer'
   });
 });

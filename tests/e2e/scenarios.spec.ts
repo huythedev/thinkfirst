@@ -13,6 +13,48 @@ import {
   dbl,
 } from './fixtures';
 
+type FirestoreValue = Record<string, unknown>;
+
+function readFirestoreValue(value: unknown, fieldName: string): FirestoreValue {
+  if (!value || typeof value !== 'object') {
+    throw new Error(`Expected persisted independenceSnapshots.${fieldName} to exist.`);
+  }
+  return value as FirestoreValue;
+}
+
+function readNumber(value: unknown, fieldName: string): number {
+  const field = readFirestoreValue(value, fieldName);
+  const raw = field.doubleValue ?? field.integerValue;
+  const number = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+  if (!Number.isFinite(number)) {
+    throw new Error(`Expected persisted independenceSnapshots.${fieldName} to be numeric.`);
+  }
+  return number;
+}
+
+function readNullableNumber(value: unknown, fieldName: string): number | null {
+  const field = readFirestoreValue(value, fieldName);
+  if ('nullValue' in field) return null;
+  return readNumber(field, fieldName);
+}
+
+function readBoolean(value: unknown, fieldName: string): boolean {
+  const field = readFirestoreValue(value, fieldName);
+  if (typeof field.booleanValue !== 'boolean') {
+    throw new Error(`Expected persisted independenceSnapshots.${fieldName} to be boolean.`);
+  }
+  return field.booleanValue;
+}
+
+function readMap(value: unknown, fieldName: string): Record<string, unknown> {
+  const field = readFirestoreValue(value, fieldName);
+  const fields = (field.mapValue as { fields?: unknown } | undefined)?.fields;
+  if (!fields || typeof fields !== 'object') {
+    throw new Error(`Expected persisted independenceSnapshots.${fieldName} to be a map.`);
+  }
+  return fields as Record<string, unknown>;
+}
+
 /**
  * Section 38, Scenario A -- student asks for a direct answer.
  *
@@ -104,9 +146,24 @@ test.describe('Scenario A: student asks for a direct answer', () => {
     // First, let's get the score before the transfer evaluation
     const beforeScoreDoc = await queryCollection('independenceSnapshots');
     const beforeSession = beforeScoreDoc.find(s => (s.kind as any)?.stringValue === 'session' && (s.sessionId as any)?.stringValue === sessionId);
-    const coverageBefore = beforeSession ? ((beforeSession.coverage as any)?.doubleValue ?? (beforeSession.coverage as any)?.integerValue ?? 0) : 0;
-    const scoreBefore = beforeSession ? ((beforeSession.rawScore as any)?.doubleValue ?? (beforeSession.rawScore as any)?.integerValue ?? null) : null;
-    const suppressedBefore = beforeSession ? ((beforeSession.displaySuppressed as any)?.booleanValue ?? true) : true;
+    const scoreBefore = beforeSession
+      ? readNullableNumber(beforeSession.totalScore, 'totalScore')
+      : null;
+    const coverageBefore = beforeSession
+      ? readNumber(beforeSession.coverage, 'coverage')
+      : 0;
+    const suppressedBefore = beforeSession
+      ? readBoolean(beforeSession.suppressed, 'suppressed')
+      : true;
+
+    if (beforeSession) {
+      if (coverageBefore >= MIN_SESSION_COVERAGE_TO_DISPLAY) {
+        expect(suppressedBefore).toBe(false);
+        expect(scoreBefore).not.toBeNull();
+      } else {
+        expect(suppressedBefore).toBe(true);
+      }
+    }
 
     const response = await sendTurn(request, student, sessionId, 'Just tell me the final answer. I tried factoring it first.');
     expect(response.status).toBe(200);
@@ -173,50 +230,38 @@ test.describe('Scenario A: student asks for a direct answer', () => {
     expect(updatedTransfer).toBeDefined();
     expect((updatedTransfer!.status as any)?.stringValue).toBe('evaluated');
 
-    const updatedSessions = await queryCollection('learningSessions');
-    const updatedSession = updatedSessions.find((s) => (s.id as any)?.stringValue === sessionId);
-    expect(updatedSession).toBeDefined();
-    
-    // LiveScore field must exist, proving it was recomputed
-    const liveScore = (updatedSession!.liveScore as any)?.mapValue?.fields;
-    expect(liveScore).toBeDefined();
-    
     const afterScoreDoc = await queryCollection('independenceSnapshots');
     const afterSession = afterScoreDoc.find(s => (s.kind as any)?.stringValue === 'session' && (s.sessionId as any)?.stringValue === sessionId);
-    const coverageAfter = afterSession ? ((afterSession.coverage as any)?.doubleValue ?? (afterSession.coverage as any)?.integerValue ?? 0) : 0;
-    
-    // Explicitly check for null vs number; a missing rawScore is null, not 0.
-    const rawScoreVal = afterSession ? (afterSession.rawScore as any) : null;
-    let scoreAfter: number | null = null;
-    if (rawScoreVal) {
-      if (rawScoreVal.nullValue !== undefined) scoreAfter = null;
-      else if (rawScoreVal.doubleValue !== undefined) scoreAfter = rawScoreVal.doubleValue;
-      else if (rawScoreVal.integerValue !== undefined) scoreAfter = rawScoreVal.integerValue;
-    }
-    
-    const suppressedAfter = afterSession ? ((afterSession.displaySuppressed as any)?.booleanValue ?? true) : true;
-    
-    let validOutcome = false;
+    expect(afterSession).toBeDefined();
+
+    const scoreAfter = readNullableNumber(afterSession!.totalScore, 'totalScore');
+    const coverageAfter = readNumber(afterSession!.coverage, 'coverage');
+    const suppressedAfter = readBoolean(afterSession!.suppressed, 'suppressed');
+
+    // This snapshot is rewritten after the transfer attempt, so its raw metrics
+    // must include the newly stored deterministic outcome rather than the
+    // pre-attempt "issued but unavailable" transfer state.
+    const rawMetricsAfter = readMap(afterSession!.rawMetrics, 'rawMetrics');
+    const transferMetricsAfter = readMap(rawMetricsAfter.transfer, 'rawMetrics.transfer');
+    expect((transferMetricsAfter.outcome as any)?.stringValue).toBe('independent_correct');
+    expect((transferMetricsAfter.correctnessSource as any)?.stringValue).toBe('deterministic');
+
     if (coverageAfter > coverageBefore) {
-       // Outcome A: new evidence increases coverage
-       // Prove scoring was actually recomputed consistently with new evidence
-       expect(coverageAfter).toBeGreaterThan(coverageBefore);
-       expect(scoreAfter).not.toBeNull();
-       
-       if (coverageAfter >= MIN_SESSION_COVERAGE_TO_DISPLAY) {
-         expect(suppressedAfter).toBe(false);
-         expect(typeof scoreAfter).toBe('number');
-       } else {
-         expect(suppressedAfter).toBe(true);
-       }
-       validOutcome = true;
-    } else if (coverageAfter < MIN_SESSION_COVERAGE_TO_DISPLAY) {
-       // Outcome B: evidence remains insufficient
-       expect(suppressedAfter).toBe(true);
-       validOutcome = true;
+      // Outcome A: new evidence increases coverage
+      expect(coverageAfter).toBeGreaterThan(coverageBefore);
+
+      if (coverageAfter >= MIN_SESSION_COVERAGE_TO_DISPLAY) {
+        expect(suppressedAfter).toBe(false);
+        expect(scoreAfter).not.toBeNull();
+      } else {
+        expect(suppressedAfter).toBe(true);
+      }
+    } else {
+      // Outcome B: evidence did not increase coverage, so suppression is valid
+      // only when the persisted snapshot remains below the display threshold.
+      expect(coverageAfter).toBeLessThan(MIN_SESSION_COVERAGE_TO_DISPLAY);
+      expect(suppressedAfter).toBe(true);
     }
-    
-    expect(validOutcome).toBe(true);
   });
 });
 

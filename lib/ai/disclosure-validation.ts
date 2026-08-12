@@ -141,7 +141,11 @@ export interface JudgeSemanticDisclosureInput {
   problem: string;
   referenceAnswer: string;
   candidateResponse: string;
-  isFullSolutionAllowedThisTurn: boolean;
+  responsePlan: {
+    action: string;
+    allowedHintLevel: number;
+    mayRevealFinalAnswer: boolean;
+  };
 }
 
 export const DISCLOSURE_JUDGE_TIMEOUT_MS = 5000;
@@ -151,7 +155,9 @@ export async function judgeSemanticDisclosure(input: JudgeSemanticDisclosureInpu
 Problem: ${input.problem}
 Reference Answer: ${input.referenceAnswer}
 Candidate Response: ${input.candidateResponse}
-Is Full Solution Allowed This Turn: ${input.isFullSolutionAllowedThisTurn}`;
+Response Plan Action: ${input.responsePlan.action}
+Response Plan Allowed Hint Level: ${input.responsePlan.allowedHintLevel}
+Response Plan May Reveal Final Answer: ${input.responsePlan.mayRevealFinalAnswer}`;
 
   const judgeSchema: GeminiSchema = {
     type: Type.OBJECT,

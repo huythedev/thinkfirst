@@ -101,6 +101,26 @@ describe('POST /api/session/chat', () => {
     expect(modelSpy).not.toHaveBeenCalled();
   });
 
+  test('F2. semantic judge malformed JSON fails closed', async () => {
+    modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({
+        messageMarkdown: 'A complex semantic hint',
+        responseType: 'hint',
+        hintLevel: 1,
+        finalAnswerIncluded: false,
+        internalConceptTags: [],
+      })
+    });
+    modelSpy.mockResolvedValueOnce({ text: '{"verdict":"safe","confidence"' });
+
+    const res = await POST(validRequest());
+    const data = await res.json();
+
+    expect(data.tutorData.messageMarkdown).toContain('I started to answer with more than you should see at this point');
+    expect(modelSpy).toHaveBeenCalledTimes(3);
+  });
+
   test('A. deterministic leak blocks and Gemini is not invoked', async () => {
     modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
     modelSpy.mockResolvedValueOnce({
@@ -335,7 +355,12 @@ describe('POST /api/session/chat', () => {
     mockPolicy.strictness = 'supportive';
     mockPolicy.mode = 'learn';
     mockPolicy.allowFullSolutions = true;
-    modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({
+        ...validClassifierOutput,
+        intent: 'answer_request',
+      })
+    });
     modelSpy.mockResolvedValueOnce({
       text: JSON.stringify({
         messageMarkdown: 'The full answer is x = 5.',
@@ -349,6 +374,9 @@ describe('POST /api/session/chat', () => {
     const res = await POST(validRequest());
     const data = await res.json();
     
+    expect(data.responsePlan.action).toBe('provide_full_solution');
+    expect(data.responsePlan.allowedHintLevel).toBe(7);
+    expect(data.responsePlan.mayRevealFinalAnswer).toBe(true);
     expect(data.tutorData.messageMarkdown).toBe('The full answer is x = 5.');
     expect(modelSpy).toHaveBeenCalledTimes(2); // no judge call
   });
@@ -467,7 +495,7 @@ describe('POST /api/session/chat', () => {
     const req = validRequest();
     const reqJson = await req.json();
     reqJson.message = 'I got x=10';
-    const updatedReq = new Request('http://localhost/api/session/chat', {
+    const updatedReq = new NextRequest('http://localhost/api/session/chat', {
       method: 'POST',
       body: JSON.stringify(reqJson)
     });

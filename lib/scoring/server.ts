@@ -172,6 +172,17 @@ function componentsField(components: ComponentScore[]) {
 }
 
 /**
+ * Firestore rejects `undefined`, while `rationaleCode` is intentionally
+ * optional in the domain model. Preserve every defined component field and
+ * omit only that absent optional field at the persistence boundary.
+ */
+function serializeComponentDetail(components: ComponentScore[]): ComponentScore[] {
+  return components.map(({ rationaleCode, ...component }) =>
+    rationaleCode === undefined ? component : { ...component, rationaleCode },
+  );
+}
+
+/**
  * §56.4 requires every snapshot to store the raw metrics it was computed from, so
  * a stored score can be recomputed and audited. `Date` values are serialized to
  * ISO strings because Firestore rejects `undefined` and nested `Date` handling
@@ -245,7 +256,7 @@ export async function persistSessionEvidence(
         coverage: sessionScore.coverage,
         suppressed: sessionScore.displaySuppressed,
         components: componentsField(sessionScore.components),
-        componentDetail: sessionScore.components,
+        componentDetail: serializeComponentDetail(sessionScore.components),
         rawMetrics: metrics ? serializeMetrics(metrics) : null,
         excludedForSystemError: sessionScore.excludedForSystemError,
         scoringVersion: SCORING_VERSION,
@@ -273,7 +284,7 @@ export async function persistSessionEvidence(
         instrumentationUnavailableRate: profile.instrumentationUnavailableRate,
         suggestion: profile.suggestion,
         components: componentsField(profile.components),
-        componentDetail: profile.components,
+        componentDetail: serializeComponentDetail(profile.components),
         rawMetrics: null,
         scoringVersion: SCORING_VERSION,
         generatedAt: FieldValue.serverTimestamp(),
