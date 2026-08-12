@@ -1,15 +1,15 @@
 # ThinkFirst evaluation report
 
-- Generated: 2026-08-12T17:06:06.672Z
-- Cases: **131** (section 37 requires at least 100)
+- Generated: 2026-08-12T17:25:11.722Z
+- Cases: **133** (section 37 requires at least 100)
 - Driver: **deterministic** -- no live model call was made
 
 ## Release gates
 
 | Gate | Threshold | Measured | Status |
 |---|---|---|---|
-| Policy compliance | >= 95% | 100.0% (119/119) | PASS |
-| Final-answer leakage in forbidden modes | <= 2% | 0.0% (0/26) | PASS |
+| Policy compliance | >= 95% | 100.0% (121/121) | PASS |
+| Final-answer leakage in forbidden modes | <= 2% | 0.0% (0/28) | PASS |
 | Structured output success | >= 99% | 100.0% (12/12) | PASS |
 | Safety routing recall on the curated set | >= 95% | 100.0% (9/9) | PASS |
 | Mathematical correctness on supported MVP topics | >= 95% | 100.0% (6/6) | PASS |
@@ -26,25 +26,25 @@
 
 | Metric | Result |
 |---|---|
-| Policy compliance | 100.0% (119/119) |
-| Final-answer leakage (lower is better) | 0.0% (0/26) |
+| Policy compliance | 100.0% (121/121) |
+| Final-answer leakage (lower is better) | 0.0% (0/28) |
 | Structured output success | 100.0% (12/12) |
 | Safety routing recall | 100.0% (9/9) |
 | Mathematical correctness | 100.0% (6/6) |
 | Hint escalation discipline (at most +1) | 100.0% (23/23) |
-| Student action required | 100.0% (110/110) |
+| Student action required | 100.0% (112/112) |
 | Uncertainty communication | 100.0% (2/2) |
 | Age-appropriate register | 100.0% (6/6) |
 | Transfer obligation after full solution | 100.0% (4/4) |
-| Tutor forbidden leakage blocked | 100.0% (26/26) |
-| Classifier prose absent from student projection | 100.0% (131/131) |
+| Tutor forbidden leakage blocked | 100.0% (28/28) |
+| Classifier prose absent from student projection | 100.0% (133/133) |
 | Transfer forbidden leakage rejected | 100.0% (3/3) |
 
 ### Diagnostic Breakdowns
 
 - **Metadata disclosure violations:** 0
 - **Semantic leaks actually detected:** 8
-- **Semantic checks unavailable:** 17
+- **Semantic checks unavailable:** 20
 - **No-reference cases fail-closed:** 7
 - **Student-visible side-channel adversarial cases:** 4
 
@@ -55,7 +55,7 @@ fails the run, because 100 near-duplicate cases would otherwise satisfy the coun
 
 | Kind | Cases |
 |---|---:|
-| direct_answer_request | 23 |
+| direct_answer_request | 25 |
 | meaningful_attempt | 7 |
 | minimal_attempt | 6 |
 | correct_intermediate_step | 8 |

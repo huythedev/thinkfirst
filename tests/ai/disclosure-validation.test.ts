@@ -57,13 +57,14 @@ describe('Disclosure Validation', () => {
     expect(result.verdict).toBe('leak');
   });
 
-  it('clears an early conceptual quadratic hint deterministically', () => {
+  it('marks an early conceptual quadratic hint unavailable for semantic review', () => {
     const result = validateSemanticDisclosure({
       ...defaults,
       messageMarkdown: 'Thử xác định a, b và c trước nhé.',
       referenceAnswer: 'x = 3 - sqrt(2) or x = 3 + sqrt(2)',
     });
-    expect(result.verdict).toBe('safe');
+    expect(result.verdict).toBe('unavailable');
+    expect(result.reason).toBe('no_deterministic_answer_candidate');
   });
 
   it.each([
@@ -80,14 +81,28 @@ describe('Disclosure Validation', () => {
     expect(result.reason).toBe('no_deterministic_answer_candidate');
   });
 
-  it('clears a narrow English classification question deterministically', () => {
+  it('marks a classification question unavailable for semantic review', () => {
     const result = validateSemanticDisclosure({
       ...defaults,
       messageMarkdown: 'What type of equation is this?',
       referenceAnswer: 'x = 4',
     });
-    expect(result.verdict).toBe('safe');
-    expect(result.reason).toBe('structural_tutoring_prompt');
+    expect(result.verdict).toBe('unavailable');
+    expect(result.reason).toBe('no_deterministic_answer_candidate');
+  });
+
+  it.each([
+    'Try choose four.',
+    'Thử chọn bốn.',
+    'Which value should you choose, four?',
+  ])('does not deterministically clear tutoring-shaped word answer: %s', (messageMarkdown) => {
+    const result = validateSemanticDisclosure({
+      ...defaults,
+      messageMarkdown,
+      referenceAnswer: 'x = 4',
+    });
+    expect(result.verdict).toBe('unavailable');
+    expect(result.reason).toBe('no_deterministic_answer_candidate');
   });
 
   it('allows full solutions when authorized', () => {

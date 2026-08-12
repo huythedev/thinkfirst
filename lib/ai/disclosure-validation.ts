@@ -73,14 +73,12 @@ export function validateSemanticDisclosure(input: DisclosureValidationInput): Di
   }
 
   const candidates = extractCandidates(input.messageMarkdown).filter(looksLikeMathematicalAnswer);
-  // Parsing nothing proves nothing. In particular, a final answer written only
-  // in words would otherwise bypass both deterministic comparison and the
-  // semantic judge. Only a deliberately narrow, structurally pedagogical
-  // prompt can clear without a candidate; all other prose is uncertainty.
   if (candidates.length === 0) {
-    return isClearlyNonAnswerTutoringPrompt(input.messageMarkdown)
-      ? { verdict: 'safe', confidence: 1, reason: 'structural_tutoring_prompt' }
-      : { verdict: 'unavailable', confidence: 0, reason: 'no_deterministic_answer_candidate' };
+    return {
+      verdict: 'unavailable',
+      confidence: 0,
+      reason: 'no_deterministic_answer_candidate',
+    };
   }
   const referenceParts = input.referenceAnswer.split(/,|\s+or\s+|\s+and\s+/i).map((part) => part.trim()).filter(Boolean);
   let hasUnsupported = false;
@@ -117,26 +115,6 @@ function extractCandidates(text: string): string[] {
 
 function looksLikeMathematicalAnswer(value: string): boolean {
   return /(?:=|∈|\\in|±|√|sqrt\s*\(|\d)/i.test(value);
-}
-
-/**
- * A tiny safe allowlist for non-answer tutoring language. This is not a
- * natural-language answer detector: it proves only that a short, single
- * sentence is asking for classification or directing one bounded process step.
- * Anything declarative, answer-like, multilingual outside these forms, or
- * otherwise ambiguous goes to the semantic judge instead.
- */
-function isClearlyNonAnswerTutoringPrompt(message: string): boolean {
-  const text = message.replace(/[*_`>#]/g, '').replace(/\s+/g, ' ').trim();
-  if (!text || text.length > 180 || looksLikeMathematicalAnswer(text)) return false;
-
-  // These words signal a final-answer/result assertion or confirmation. They
-  // are exclusions, not an attempt to parse answers across languages.
-  if (/\b(?:answer|result|solution|root|roots)\b|(?:nghiệm|đáp án|kết quả)/iu.test(text)) return false;
-
-  const classificationQuestion = /^(?:what|which|how|why|where|when)\b[^?]*\?$/iu;
-  const boundedPrompt = /^(?:try\s+(?:to\s+)?(?:identify|classify|choose|explain|attempt|isolat(?:e|ing)|subtract(?:ing)?|add(?:ing)?|multiply(?:ing)?|divide(?:ing)?)\b|thử\s+(?:xác định|phân loại|chọn|giải thích|làm)\b)[^.?!]*[.?!]?$/iu;
-  return classificationQuestion.test(text) || boundedPrompt.test(text);
 }
 
 export interface JudgeSemanticDisclosureInput {

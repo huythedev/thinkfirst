@@ -278,6 +278,9 @@ describe('POST /api/session/chat', () => {
         internalConceptTags: [],
       }),
     });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({ verdict: 'safe', confidence: 0.95, reasonCode: 'no_disclosure' }),
+    });
 
     const res = await POST(validRequest());
     const data = await res.json();
@@ -285,7 +288,7 @@ describe('POST /api/session/chat', () => {
     expect(data.tutorData.messageMarkdown).toContain('Try subtracting three');
     expect(data.tutorData.hintLevel).toBe(1);
     expect(data.sessionState.currentHintLevel).toBe(1);
-    expect(modelSpy).toHaveBeenCalledTimes(2);
+    expect(modelSpy).toHaveBeenCalledTimes(3);
   });
 
   test('B. semantic judge leak blocks', async () => {
@@ -342,6 +345,37 @@ describe('POST /api/session/chat', () => {
     expect(modelSpy).toHaveBeenCalledTimes(3);
   });
 
+  test.each([
+    'Try choose four.',
+    'Thử chọn bốn.',
+  ])('withholds a word answer disguised as a tutoring prompt after judge review: %s', async (messageMarkdown) => {
+    mockPolicy = {
+      ...mockPolicy,
+      originalProblem: 'Solve for x: 2x = 8',
+      referenceAnswer: 'x = 4',
+    };
+    modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({
+        messageMarkdown,
+        responseType: 'hint',
+        hintLevel: 1,
+        finalAnswerIncluded: false,
+        internalConceptTags: [],
+      }),
+    });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({ verdict: 'leak', confidence: 0.99, reasonCode: 'equivalent_answer' }),
+    });
+
+    const res = await POST(validRequest());
+    const data = await res.json();
+
+    expect(data.tutorData.messageMarkdown).not.toContain(messageMarkdown);
+    expect(data.tutorData.messageMarkdown).toContain('I’ll keep the answer back');
+    expect(modelSpy).toHaveBeenCalledTimes(3);
+  });
+
   test('a safe conceptual English hint is delivered without a fallback', async () => {
     mockPolicy = { ...mockPolicy, originalProblem: 'Solve for x: 2x = 8', referenceAnswer: 'x = 4' };
     modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
@@ -354,12 +388,15 @@ describe('POST /api/session/chat', () => {
         internalConceptTags: [],
       }),
     });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({ verdict: 'safe', confidence: 0.95, reasonCode: 'no_disclosure' }),
+    });
 
     const res = await POST(validRequest());
     const data = await res.json();
 
     expect(data.tutorData.messageMarkdown).toBe('What type of equation is this?');
-    expect(modelSpy).toHaveBeenCalledTimes(2);
+    expect(modelSpy).toHaveBeenCalledTimes(3);
   });
 
   test('C. semantic judge uncertain blocks', async () => {
@@ -589,6 +626,9 @@ describe('POST /api/session/chat', () => {
         responseType: 'question', hintLevel: 0, finalAnswerIncluded: false, internalConceptTags: [],
       }),
     });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({ verdict: 'safe', confidence: 0.95, reasonCode: 'no_disclosure' }),
+    });
 
     const req = new NextRequest('http://localhost/api/session/chat', {
       method: 'POST', body: JSON.stringify({ sessionId: 'session1', message }),
@@ -601,9 +641,7 @@ describe('POST /api/session/chat', () => {
     expect(data.tutorData.messageMarkdown).not.toContain('3 + sqrt(2)');
     expect(data.tutorData.messageMarkdown).not.toContain('Mình sẽ giữ lại phần đáp án');
     expect(data.sessionState.currentHintLevel).toBe(0);
-    // The quadratic reference was established deterministically, so this
-    // conceptual response needed neither a fallback nor a judge call.
-    expect(modelSpy).toHaveBeenCalledTimes(2);
+    expect(modelSpy).toHaveBeenCalledTimes(3);
   });
 
   test.each([
