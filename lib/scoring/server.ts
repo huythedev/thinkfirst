@@ -259,7 +259,10 @@ export async function persistSessionEvidence(
         scoringVersion: SCORING_VERSION,
       };
 
-  const profile = computeIndependenceProfile(allMetrics, profileBaselineScore);
+  const profile = await computeProfileWithPerSessionCap(
+    allMetrics,
+    profileBaselineScore,
+  );
 
   const sessionSnapshotId = `${sessionId}__${SCORING_VERSION}`;
   const profileSnapshotId = `${studentId}__profile__${SCORING_VERSION}`;
@@ -319,6 +322,53 @@ export async function persistSessionEvidence(
   await Promise.all(writes);
 
   return { sessionScore, profile, sessionSnapshotId, profileSnapshotId };
+}
+
+/**
+ * Applies the ±8 rule in a deterministic session order, rather than clamping
+ * the entire profile around whichever session happened to recompute last.
+ *
+ * Each session snapshot retains the profile baseline observed when it first
+ * contributed.  The oldest such baseline anchors a canonical replay; every
+ * subsequent prefix is clamped relative to the preceding prefix.  Replaying A,
+ * B after either A or B changes therefore produces the same profile, and a
+ * stale baseline from A cannot erase B's already-accounted contribution.
+ */
+async function computeProfileWithPerSessionCap(
+  allMetrics: SessionMetrics[],
+  fallbackBaseline: number | null,
+): Promise<IndependenceProfile> {
+  const snapshotBaselines = await Promise.all(
+    allMetrics.map(async (metrics) => {
+      const snapshot = await adminDb
+        .collection('independenceSnapshots')
+        .doc(`${metrics.sessionId}__${SCORING_VERSION}`)
+        .get();
+      const value = snapshot.exists
+        ? (snapshot.data() as Record<string, unknown>).profileBaselineScore
+        : null;
+      return { sessionId: metrics.sessionId, value: typeof value === 'number' ? value : null };
+    }),
+  );
+
+  const ordered = [...allMetrics].sort((left, right) => {
+    const byTime = (left.occurredAt?.getTime() ?? 0) - (right.occurredAt?.getTime() ?? 0);
+    return byTime !== 0 ? byTime : left.sessionId.localeCompare(right.sessionId);
+  });
+  const baselinesBySession = new Map(snapshotBaselines.map(({ sessionId, value }) => [sessionId, value]));
+  // The first session in the canonical order owns the profile state that
+  // existed before this evidence set. Later per-session baselines describe an
+  // intermediate replay state and must not replace that anchor.
+  let prior = ordered
+    .map((metrics) => baselinesBySession.get(metrics.sessionId))
+    .find((value): value is number => typeof value === 'number') ?? fallbackBaseline;
+
+  let profile = computeIndependenceProfile([], prior);
+  for (let index = 0; index < ordered.length; index += 1) {
+    profile = computeIndependenceProfile(ordered.slice(0, index + 1), prior);
+    if (profile.score !== null) prior = profile.score;
+  }
+  return profile;
 }
 
 /**

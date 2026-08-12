@@ -35,6 +35,8 @@ export interface SafetyEventInput {
   category: Exclude<SafetyCategory, 'none'>;
   responseClass: SafetyResponseClass;
   flagForTeacherReview: boolean;
+  /** The verified classroom review scope, when the student has one. */
+  classroomId?: string | null;
   /** Classifier confidence, so a low-confidence flag can be weighted by a human. */
   confidence: number;
 }
@@ -52,6 +54,7 @@ export async function recordSafetyEvent(input: SafetyEventInput): Promise<boolea
       sessionId: input.sessionId,
       studentId: input.studentId,
       turnId: input.turnId,
+      classroomId: input.classroomId ?? null,
       category: input.category,
       responseClass: input.responseClass,
       flaggedForTeacherReview: input.flagForTeacherReview,

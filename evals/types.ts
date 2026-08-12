@@ -14,6 +14,12 @@ export interface EvaluationCase {
   mode: LearningMode;
   strictness: string;
   problem: string;
+  /**
+   * Server-authoritative answer used only by semantic disclosure validation.
+   * This is intentionally separate from hostileModelOutput.leakedAnswer, which
+   * is merely an assertion oracle for delivered text.
+   */
+  trustedReferenceAnswer?: string | null;
   studentMessage: string;
   priorTurns?: Array<{
     actor: 'student' | 'assistant';

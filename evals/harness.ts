@@ -63,6 +63,7 @@ export interface EvaluationReport {
       semanticChecksUnavailable: number;
       semanticLeaksDetected: number;
       metadataLeaksDetected: number;
+      noReferenceFailClosedCases: number;
     };
   };
   gates: GateResult[];
@@ -126,6 +127,7 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
   let semanticChecksUnavailable = 0;
   let semanticLeaksDetected = 0;
   let metadataLeaksDetected = 0;
+  let noReferenceFailClosedCases = 0;
 
   const counts = new Map<CaseCategory, number>();
 
@@ -351,10 +353,10 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
         internalConceptTags: [],
       };
 
-      // A string the test searches for is not a trusted server-side reference.
-      // Cases without mathCheck deliberately exercise the production no-reference
-      // path instead of granting the harness knowledge production does not have.
-      const referenceAnswer = evaluationCase.mathCheck?.referenceAnswer ?? null;
+      // A delivery oracle is not authority. The trusted reference is an explicit
+      // fixture field, matching production's server-only source; `leakedAnswer`
+      // must never be promoted into clearance input.
+      const referenceAnswer = evaluationCase.trustedReferenceAnswer ?? null;
       const semanticResult = validateSemanticDisclosure({
         messageMarkdown: candidate.messageMarkdown,
         referenceAnswer: referenceAnswer,
@@ -364,6 +366,7 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
 
       if (semanticResult.verdict === 'unavailable') {
         semanticChecksUnavailable += 1;
+        if (!referenceAnswer) noReferenceFailClosedCases += 1;
       } else if (semanticResult.verdict === 'leak') {
         semanticLeaksDetected += 1;
       }
@@ -422,11 +425,12 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
     uncertaintyCommunication: ratio(uncertaintyPassed, uncertaintyTotal),
     ageAppropriateRegister: ratio(tonePassed, toneTotal),
     transferObligation: ratio(transferPassed, transferTotal),
-    diagnosticBreakdowns: {
-      semanticChecksUnavailable,
-      semanticLeaksDetected,
-      metadataLeaksDetected,
-    },
+      diagnosticBreakdowns: {
+        semanticChecksUnavailable,
+        semanticLeaksDetected,
+        metadataLeaksDetected,
+        noReferenceFailClosedCases,
+      },
   };
 
   const gates: GateResult[] = [

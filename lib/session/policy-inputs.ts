@@ -20,7 +20,12 @@ import type { PolicyMode, PolicyStrictness } from '@/services/ai-gateway/src/pol
  * chain below deliberately skips the session document for the fields a teacher
  * owns, and resolves them in the order section 41.1 gives:
  *
- *   assignments/{id} -> classrooms/{id} -> studentProfiles/{uid} -> default
+ *   assignments/{id} -> classrooms/{id} -> default
+ *
+ * `studentProfiles` still supplies a student-selected grade for presentation.
+ * Its `defaultStrictness` is deliberately *not* a policy source: the same
+ * student can author it, and strictness changes disclosure permissions. It is a
+ * UI preference only, never an authorization input.
  *
  * The session document remains authoritative for the two things it legitimately
  * owns and the client cannot write: `currentHintLevel`, which only this endpoint
@@ -60,6 +65,9 @@ export interface ResolvedPolicyInputs {
   /** True when the student has confirmed the extracted text (section 34 step 10). */
   extractionConfirmed?: boolean;
   imageId?: string;
+  /** A classroom-backed session with an active membership and real owner. */
+  reviewerAvailable: boolean;
+  classroomId?: string;
   /** The trusted server-side reference answer, typically from an assignment. */
   referenceAnswer?: string;
   /** Where each contested value came from, for the audit trail and for tests. */
@@ -74,7 +82,8 @@ export interface ResolvedPolicyInputs {
 export type PolicyResolution =
   | { status: 'ok'; inputs: ResolvedPolicyInputs }
   | { status: 'not_found' }
-  | { status: 'forbidden' };
+  | { status: 'forbidden' }
+  | { status: 'closed' };
 
 function isStrictness(value: unknown): value is PolicyStrictness {
   return typeof value === 'string' && (STRICTNESS_VALUES as readonly string[]).includes(value);
@@ -117,9 +126,6 @@ export function resolvePolicyFromDocuments(
 ): ResolvedPolicyInputs {
   const { session, assignment, classroom, studentProfile, problemImage, assignmentReference } = documents;
 
-  const profileStrictness = (studentProfile?.assistanceProfile as Record<string, unknown> | undefined)
-    ?.defaultStrictness;
-
   let strictness: PolicyStrictness = DEFAULT_STRICTNESS;
   let strictnessSource: PolicySource = 'default';
 
@@ -129,9 +135,6 @@ export function resolvePolicyFromDocuments(
   } else if (isStrictness(classroom?.defaultStrictness)) {
     strictness = classroom.defaultStrictness;
     strictnessSource = 'classroom';
-  } else if (isStrictness(profileStrictness)) {
-    strictness = profileStrictness;
-    strictnessSource = 'studentProfile';
   }
 
   // Mode is the student's own pedagogical choice, so the session document is a
@@ -229,6 +232,7 @@ export function resolvePolicyFromDocuments(
     extractionConfidence,
     extractionConfirmed,
     imageId: image ? (typeof image.id === 'string' ? image.id : undefined) : undefined,
+    reviewerAvailable: false,
     referenceAnswer,
     sources: {
       strictness: strictnessSource,
@@ -256,6 +260,7 @@ export async function resolvePolicyInputs(
 
   const session = (sessionSnapshot.data() ?? {}) as Record<string, unknown>;
   if (session.studentId !== uid) return { status: 'forbidden' };
+  if (session.status !== 'active') return { status: 'closed' };
 
   const assignmentId = typeof session.assignmentId === 'string' ? session.assignmentId : null;
   const classroomId = typeof session.classroomId === 'string' ? session.classroomId : null;
@@ -299,16 +304,25 @@ export async function resolvePolicyInputs(
   // provide this check for us.
   if (assignmentId && !assignmentBelongs) return { status: 'forbidden' };
 
+  const resolved = resolvePolicyFromDocuments(sessionId, uid, {
+    session,
+    assignment: assignmentBelongs ? assignment : null,
+    classroom,
+    studentProfile,
+    problemImage,
+    assignmentReference: assignmentBelongs ? assignmentReference : null,
+  });
+
   return {
     status: 'ok',
-    inputs: resolvePolicyFromDocuments(sessionId, uid, {
-      session,
-      assignment: assignmentBelongs ? assignment : null,
-      classroom,
-      studentProfile,
-      problemImage,
-      assignmentReference: assignmentBelongs ? assignmentReference : null,
-    }),
+    inputs: {
+      ...resolved,
+      classroomId: classroomId ?? undefined,
+      reviewerAvailable:
+        classroomId !== null &&
+        membership?.status === 'active' &&
+        typeof classroom?.teacherId === 'string' && classroom.teacherId.length > 0,
+    },
   };
 }
 

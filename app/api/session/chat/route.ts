@@ -16,7 +16,7 @@ import {
 import { verifyRequest } from '@/lib/firebase/verify-request';
 import { adminDb } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
-import { nextHintLevel } from '@/lib/session/hint-ladder';
+import { effectiveHintLevelAfterDelivery } from '@/lib/session/delivered-hint';
 import {
   loadTranscript,
   resolvePolicyInputs,
@@ -30,7 +30,7 @@ import {
   resolveTransferOutcome,
 } from '@/lib/session/evaluation';
 import { persistSessionEvidence } from '@/lib/scoring/server';
-import { composeSafetyResponse } from '@/lib/safety/response';
+import { composeSafetyResponse, messageWithReviewStatus } from '@/lib/safety/response';
 import { recordSafetyEvent } from '@/lib/safety/safety-event';
 import {
   RATE_LIMITS,
@@ -140,6 +140,12 @@ export async function POST(req: NextRequest) {
       // Another student's session gets the same body as a miss, so the endpoint
       // does not confirm that the id exists.
       return NextResponse.json({ error: 'Session not found.' }, { status: 404 });
+    }
+    if (resolution.status === 'closed') {
+      return NextResponse.json(
+        { error: 'This session is closed and cannot accept new tutoring turns.' },
+        { status: 409 },
+      );
     }
 
     const policy = resolution.inputs;
@@ -273,17 +279,25 @@ Action: ${responsePlan.action}`;
       judgeSemanticDisclosure,
       shouldWithholdForDisclosure,
     } = await import('@/lib/ai/disclosure-validation');
+    const { deriveTrustedReferenceAnswer } = await import('@/lib/math/trusted-reference');
+    // Assignment references are authoritative teacher input.  For ordinary
+    // standalone linear equations, use the bounded deterministic solver so a
+    // useful hint can be semantically cleared without trusting model prose.
+    // Unsupported problems intentionally retain the fail-closed path.
+    const trustedReferenceAnswer =
+      policy.referenceAnswer ??
+      deriveTrustedReferenceAnswer(policy.originalProblem, policy.subject);
     let semanticResult = validateSemanticDisclosure({
       messageMarkdown: tutorParse.value.messageMarkdown,
-      referenceAnswer: policy.referenceAnswer ?? null,
+      referenceAnswer: trustedReferenceAnswer,
       subject: policy.subject,
       fullSolutionAllowedThisTurn: isFullSolutionAllowedThisTurn(responsePlan),
     });
 
-    if (semanticResult.verdict !== 'leak' && !isFullSolutionAllowedThisTurn(responsePlan) && policy.referenceAnswer) {
+    if (semanticResult.verdict !== 'leak' && !isFullSolutionAllowedThisTurn(responsePlan) && trustedReferenceAnswer) {
       const judgeResult = await judgeSemanticDisclosure({
         problem: policy.originalProblem,
-        referenceAnswer: policy.referenceAnswer,
+        referenceAnswer: trustedReferenceAnswer,
         candidateResponse: tutorParse.value.messageMarkdown,
         responsePlan: {
           action: responsePlan.action,
@@ -318,10 +332,21 @@ Action: ${responsePlan.action}`;
       );
     }
 
-    // The hint ladder advances here, on the server, never from the browser. The
-    // plan's ceiling is persisted rather than the model's self-report, so a model
-    // that overshoots cannot ratchet the session forward.
-    const persistedHintLevel = nextHintLevel(policy.currentHintLevel, responsePlan.allowedHintLevel);
+    // The ladder tracks help the student actually received. A semantic or plan
+    // failure replaces model prose with a non-mathematical fallback, so it must
+    // not spend an otherwise permitted rung.
+    const persistedHintLevel = effectiveHintLevelAfterDelivery({
+      previousHintLevel: policy.currentHintLevel,
+      responsePlan,
+      deliveredResponse: tutorData,
+      messageWithheld: enforcement.messageWithheld,
+    });
+    // Keep the policy decision for audit, but score against the assistance that
+    // was actually delivered. A withheld response is a generic request for the
+    // student's work, never an educational rung or a transfer-task issue.
+    const deliveredResponsePlan = enforcement.messageWithheld
+      ? { ...responsePlan, allowedHintLevel: 0 as const, generateTransferProblem: false }
+      : responsePlan;
     const latencyMs = Date.now() - startedAt;
 
     // The assistant turn carries the policy decision, so the server writes it.
@@ -341,7 +366,8 @@ Action: ${responsePlan.action}`;
         content: tutorData.messageMarkdown,
         createdAt: FieldValue.serverTimestamp(),
         intentAnalysis: intentData,
-        responsePlan,
+        responsePlan: deliveredResponsePlan,
+        originalResponsePlan: responsePlan,
         tutorMetadata: {
           hintLevel: tutorData.hintLevel,
           finalAnswerIncluded: tutorData.finalAnswerIncluded,
@@ -389,7 +415,7 @@ Action: ${responsePlan.action}`;
       message,
       conversationHistory,
       policy,
-      responsePlan,
+      responsePlan: deliveredResponsePlan,
       tutorData,
       transcriptTurns: transcript,
     });
@@ -402,7 +428,7 @@ Action: ${responsePlan.action}`;
       evidence,
       sessionState: {
         currentHintLevel: persistedHintLevel,
-        allowedHintLevel: responsePlan.allowedHintLevel,
+        allowedHintLevel: deliveredResponsePlan.allowedHintLevel,
         mode: policy.mode,
         strictness: policy.strictness,
         grade: policy.grade,
@@ -479,8 +505,25 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
     );
   }
 
+  const turnRef = adminDb.collection('sessionTurns').doc();
+  const reviewRecorded = !!(await recordSafetyEvent({
+    sessionId: input.sessionId,
+    studentId: input.studentId,
+    turnId: turnRef.id,
+    category: input.category,
+    responseClass: safety.responseClass,
+    flagForTeacherReview: safety.flagForTeacherReview,
+    confidence: input.confidence,
+    classroomId: input.policy.classroomId ?? null,
+  }));
+
   const tutorData: TutorResponse = {
-    messageMarkdown: safety.messageMarkdown,
+    messageMarkdown: messageWithReviewStatus(
+      safety,
+      input.language,
+      reviewRecorded,
+      input.policy.reviewerAvailable,
+    ),
     responseType: 'safety_message',
     hintLevel: 0,
     finalAnswerIncluded: false,
@@ -491,19 +534,18 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
     internalConceptTags: [],
   };
 
-  const turnRef = adminDb.collection('sessionTurns').doc();
-
-  await turnRef.set({
-    id: turnRef.id,
-    sessionId: input.sessionId,
-    studentId: input.studentId,
-    sequence: input.sequence,
-    actor: 'assistant',
-    content: tutorData.messageMarkdown,
-    createdAt: FieldValue.serverTimestamp(),
-    intentAnalysis: input.intentData,
-    responsePlan: input.responsePlan,
-    tutorMetadata: {
+  try {
+    await turnRef.set({
+      id: turnRef.id,
+      sessionId: input.sessionId,
+      studentId: input.studentId,
+      sequence: input.sequence,
+      actor: 'assistant',
+      content: tutorData.messageMarkdown,
+      createdAt: FieldValue.serverTimestamp(),
+      intentAnalysis: input.intentData,
+      responsePlan: input.responsePlan,
+      tutorMetadata: {
       hintLevel: 0,
       finalAnswerIncluded: false,
       responseType: 'safety_message',
@@ -518,32 +560,29 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
       internalConceptTags: [],
       planViolations: [],
       modelOutputRevalidated: true,
-    },
-    safetyMetadata: {
-      category: input.category,
-      action: input.responsePlan.action,
-      responseClass: safety.responseClass,
-      flaggedForTeacherReview: safety.flagForTeacherReview,
-      classifierModel: input.classifierModel,
-    },
-    // §56.4: this turn is not learning evidence and must not be scored as any.
-    excludedFromScoring: true,
-  });
+      },
+      safetyMetadata: {
+        category: input.category,
+        action: input.responsePlan.action,
+        responseClass: safety.responseClass,
+        flaggedForTeacherReview: safety.flagForTeacherReview,
+        reviewRecorded,
+        reviewerAvailable: input.policy.reviewerAvailable,
+        classifierModel: input.classifierModel,
+      },
+      // §56.4: this turn is not learning evidence and must not be scored as any.
+      excludedFromScoring: true,
+    });
 
-  await recordSafetyEvent({
-    sessionId: input.sessionId,
-    studentId: input.studentId,
-    turnId: turnRef.id,
-    category: input.category,
-    responseClass: safety.responseClass,
-    flagForTeacherReview: safety.flagForTeacherReview,
-    confidence: input.confidence,
-  });
-
-  await adminDb
-    .collection('learningSessions')
-    .doc(input.sessionId)
-    .update({ updatedAt: FieldValue.serverTimestamp() });
+    await adminDb
+      .collection('learningSessions')
+      .doc(input.sessionId)
+      .update({ updatedAt: FieldValue.serverTimestamp() });
+  } catch (error) {
+    // Safety guidance must remain available if routine transcript persistence
+    // is degraded. The event writer has its own failure isolation above.
+    console.error('Safety turn persistence failed', error);
+  }
 
   return NextResponse.json({
     tutorData,
@@ -552,9 +591,9 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
     turnId: turnRef.id,
     safety: {
       responseClass: safety.responseClass,
-      // The student is told a teacher was informed, because section 24 forbids
-      // promising secrecy and silence here would be an implied promise.
-      teacherNotified: safety.flagForTeacherReview,
+      reviewRequested: safety.flagForTeacherReview,
+      reviewRecorded,
+      reviewerAvailable: input.policy.reviewerAvailable,
     },
     evidence: {
       attemptEvaluated: false,

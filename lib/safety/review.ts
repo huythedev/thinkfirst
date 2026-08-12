@@ -90,6 +90,7 @@ export interface ReviewRosterMember {
  */
 export async function loadSafetyReview(
   roster: ReviewRosterMember[],
+  classroomId?: string,
 ): Promise<SafetyReviewSummary> {
   const studentIds = roster.map((member) => member.studentId).filter(Boolean);
   if (studentIds.length === 0) {
@@ -100,11 +101,12 @@ export async function loadSafetyReview(
   const flags: SafetyFlag[] = [];
 
   for (const group of chunk(studentIds, CHUNK)) {
-    const snapshot = await adminDb
+    let query = adminDb
       .collection('safetyEvents')
       .where('studentId', 'in', group)
-      .where('flaggedForTeacherReview', '==', true)
-      .get();
+      .where('flaggedForTeacherReview', '==', true);
+    if (classroomId) query = query.where('classroomId', '==', classroomId);
+    const snapshot = await query.get();
 
     for (const document of snapshot.docs) {
       const data = document.data();

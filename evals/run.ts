@@ -74,13 +74,19 @@ function toMarkdown(report: EvaluationReport): string {
   }
 
   if (report.metrics.diagnosticBreakdowns) {
-    const { metadataLeaksDetected, semanticLeaksDetected, semanticChecksUnavailable } = report.metrics.diagnosticBreakdowns;
+    const {
+      metadataLeaksDetected,
+      semanticLeaksDetected,
+      semanticChecksUnavailable,
+      noReferenceFailClosedCases,
+    } = report.metrics.diagnosticBreakdowns;
     lines.push('');
     lines.push('### Diagnostic Breakdowns');
     lines.push('');
     lines.push(`- **Metadata disclosure violations:** ${metadataLeaksDetected}`);
-    lines.push(`- **Semantic disclosure violations:** ${semanticLeaksDetected}`);
+    lines.push(`- **Semantic leaks actually detected:** ${semanticLeaksDetected}`);
     lines.push(`- **Semantic checks unavailable:** ${semanticChecksUnavailable}`);
+    lines.push(`- **No-reference cases fail-closed:** ${noReferenceFailClosedCases}`);
   }
 
   lines.push('');

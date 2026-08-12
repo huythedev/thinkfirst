@@ -439,7 +439,7 @@ describe('cross-student session isolation', () => {
     );
   });
 
-  it('the owning student can append a turn to their own session', async () => {
+  it('the owning student can append a turn to their active session', async () => {
     await seed();
     await assertSucceeds(
       setDoc(doc(asStudentA(), 'sessionTurns', 'turn-new'), {
@@ -452,6 +452,27 @@ describe('cross-student session isolation', () => {
       }),
     );
   });
+
+  it.each(['completed', 'abandoned'] as const)(
+    'a student cannot append a turn to a %s session',
+    async (status) => {
+      await seed();
+      await updateDoc(doc(asStudentA(), 'learningSessions', 'session-a'), {
+        status,
+        completedAt: serverTimestamp(),
+      });
+      await assertFails(
+        setDoc(doc(asStudentA(), 'sessionTurns', `turn-${status}`), {
+          sessionId: 'session-a',
+          studentId: STUDENT_A,
+          sequence: 2,
+          actor: 'student',
+          content: 'Can I keep going?',
+          createdAt: serverTimestamp(),
+        }),
+      );
+    },
+  );
 
   it('rejects trusted scoring and policy metadata on a client student turn', async () => {
     await seed();
@@ -794,14 +815,38 @@ describe('classroom ownership and membership', () => {
     );
   });
 
-  it('a student can join an existing classroom at the deterministic id', async () => {
+  it('a student cannot directly join an existing classroom at the deterministic id', async () => {
     await seed();
-    await assertSucceeds(
+    await assertFails(
       setDoc(doc(asStudentB(), 'classroomMemberships', `class-a__${STUDENT_B}`), {
         classroomId: 'class-a',
         userId: STUDENT_B,
         role: 'student',
         status: 'active',
+      }),
+    );
+  });
+
+  it.each(['active', 'pending'] as const)(
+    'a student cannot directly create a %s membership',
+    async (status) => {
+      await seed();
+      await assertFails(
+        setDoc(doc(asStudentB(), 'classroomMemberships', `class-a__${STUDENT_B}`), {
+          classroomId: 'class-a',
+          userId: STUDENT_B,
+          role: 'student',
+          status,
+        }),
+      );
+    },
+  );
+
+  it('a student cannot update their own membership status', async () => {
+    await seed();
+    await assertFails(
+      updateDoc(doc(asStudentA(), 'classroomMemberships', `class-a__${STUDENT_A}`), {
+        status: 'pending',
       }),
     );
   });
@@ -848,6 +893,13 @@ describe('assignments are membership scoped', () => {
         title: 'Intruder',
       }),
     );
+  });
+
+  it('the owning teacher can edit pedagogical assignment fields but not tenant bindings', async () => {
+    await seed();
+    await assertSucceeds(updateDoc(doc(asTeacherA(), 'assignments', 'assign-a'), { title: 'Updated title' }));
+    await assertFails(updateDoc(doc(asTeacherA(), 'assignments', 'assign-a'), { teacherId: TEACHER_B }));
+    await assertFails(updateDoc(doc(asTeacherA(), 'assignments', 'assign-a'), { classroomId: 'class-b' }));
   });
 });
 
@@ -1181,10 +1233,11 @@ describe('profiles are private to their owner', () => {
     await assertFails(getDocs(collection(asStudentA(), 'studentProfiles')));
   });
 
-  it('the owning student can read and update their own profile', async () => {
+  it('the owning student can update profile preferences but cannot add trusted fields', async () => {
     await seed();
     await assertSucceeds(getDoc(doc(asStudentA(), 'studentProfiles', STUDENT_A)));
     await assertSucceeds(updateDoc(doc(asStudentA(), 'studentProfiles', STUDENT_A), { grade: 9 }));
+    await assertFails(updateDoc(doc(asStudentA(), 'studentProfiles', STUDENT_A), { teacherId: 'forged' }));
   });
 
   it('a teacher cannot read another teacher profile', async () => {

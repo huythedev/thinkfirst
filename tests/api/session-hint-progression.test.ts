@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateResponsePlan } from '@/services/ai-gateway/src/policy';
 import { clampToLadder, nextHintLevel } from '@/lib/session/hint-ladder';
+import { effectiveHintLevelAfterDelivery } from '@/lib/session/delivered-hint';
 import { MAX_HINT_LEVEL } from '@/lib/types/ai/request';
 import type { IntentAnalysis } from '@/lib/types/ai/schema';
 
@@ -92,6 +93,20 @@ function runTurn({
 }
 
 describe('hint ladder progression through the policy engine', () => {
+  it('does not consume a rung when semantic enforcement withholds model prose', () => {
+    const plan = generateResponsePlan(intent({ studentProvidedAttempt: true, attemptQuality: 'partial' }), {
+      mode: 'practice', strictness: 'balanced', currentHintLevel: 0, hasReceivedFullSolution: false,
+    });
+    const delivered = {
+      messageMarkdown: 'I held that back.', responseType: 'question' as const, hintLevel: 0 as const,
+      finalAnswerIncluded: false, studentActionRequired: null, checkForUnderstanding: null,
+      confidenceStatement: null, learningObjective: null, internalConceptTags: [],
+    };
+    expect(effectiveHintLevelAfterDelivery({
+      previousHintLevel: 0, responsePlan: plan, deliveredResponse: delivered, messageWithheld: true,
+    })).toBe(0);
+  });
+
   it('refuses to advance until the student has attempted something', () => {
     const result = runTurn({ storedLevel: 0, intentData: intent({ attemptQuality: 'none' }) });
 

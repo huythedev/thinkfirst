@@ -443,8 +443,11 @@ export function enforceResponsePlan(
     response: {
       ...response,
       messageMarkdown: language === 'vi' ? WITHHELD_MESSAGE_VI : WITHHELD_MESSAGE_EN,
-      responseType: plan.allowedHintLevel === 0 ? 'question' : 'hint',
-      hintLevel: Math.min(response.hintLevel, plan.allowedHintLevel) as TutorResponse['hintLevel'],
+      // This fallback asks the student for their work.  It is not a hidden
+      // version of the candidate hint, so its delivered metadata must not claim
+      // that any rung was shown.
+      responseType: 'question',
+      hintLevel: 0,
       finalAnswerIncluded: false,
       studentActionRequired:
         response.studentActionRequired ?? 'Describe what you have tried so far.',

@@ -169,7 +169,7 @@ describe('resolvePolicyInputs against the emulator', () => {
     expect((await policyInputs.resolvePolicyInputs(sessionId, STUDENT)).status).toBe('forbidden');
   });
 
-  it('falls back to the student profile when the session has no classroom', async () => {
+  it('uses profile grade as a preference but never profile strictness as a policy permission', async () => {
     await adminDb.collection('studentProfiles').doc(STUDENT).set({
       userId: STUDENT,
       grade: 5,
@@ -192,8 +192,8 @@ describe('resolvePolicyInputs against the emulator', () => {
     const result = await policyInputs.resolvePolicyInputs(sessionId, STUDENT);
     if (result.status !== 'ok') throw new Error('expected ok');
 
-    expect(result.inputs.strictness).toBe('independence');
-    expect(result.inputs.sources.strictness).toBe('studentProfile');
+    expect(result.inputs.strictness).toBe('balanced');
+    expect(result.inputs.sources.strictness).toBe('default');
     expect(result.inputs.grade).toBe(5);
   });
 

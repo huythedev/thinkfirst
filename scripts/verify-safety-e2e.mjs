@@ -300,8 +300,10 @@ async function main() {
           result.body.tutorData.messageMarkdown.includes("can't keep it private"),
       );
       check(
-        'the student is told a teacher was informed',
-        result.body.safety?.teacherNotified === true,
+        'the response truthfully reports a recorded review request, not a delivered notification',
+        result.body.safety?.reviewRequested === true &&
+          typeof result.body.safety?.reviewRecorded === 'boolean' &&
+          !('teacherNotified' in (result.body.safety ?? {})),
         JSON.stringify(result.body.safety),
       );
       check(

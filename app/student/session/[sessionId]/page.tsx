@@ -95,7 +95,7 @@ export default function LearningWorkspace() {
   }, [turns]);
 
   const handleSend = async () => {
-    if (!message.trim() || sending || !user || !session) return;
+    if (!message.trim() || sending || !user || !session || session.status !== 'active') return;
     
     setSending(true);
     setSendError(null);
@@ -199,6 +199,7 @@ export default function LearningWorkspace() {
   const workspaceError = signedOut
     ? 'Your sign-in has expired. Reload the page to continue.'
     : loadError;
+  const sessionIsActive = session?.status === 'active';
 
   if (loading && !signedOut) {
     return (
@@ -404,6 +405,11 @@ export default function LearningWorkspace() {
         <LiveScorePanel score={liveScore} />
 
         <div className="p-4 bg-background border-t border-border">
+          {!sessionIsActive && (
+            <p className="mb-3 rounded-xl bg-surface-muted p-3 text-sm text-foreground-muted" role="status">
+              This session is {session.status}. Its transcript and score are preserved, but new tutoring turns are closed.
+            </p>
+          )}
           {sendError && (
             <div role="alert" className="mb-3 flex items-start justify-between gap-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">
               <span>{sendError}</span>
@@ -424,22 +430,23 @@ export default function LearningWorkspace() {
               aria-label="Your message to the tutor"
               className="flex-1 p-4 border border-border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 resize-none font-sans"
               rows={2}
+              disabled={!sessionIsActive}
             />
             <button
               onClick={handleSend}
-              disabled={sending || !message.trim()}
+              disabled={!sessionIsActive || sending || !message.trim()}
               className="px-6 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 disabled:opacity-50"
             >
               {t('activeSession.send')}
             </button>
           </div>
           <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
-            <button onClick={() => setMessage(t("sessionActions.checkStep") + ": ")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted whitespace-nowrap">{t('sessionActions.checkStep')}</button>
-            <button onClick={() => setMessage(t("sessionActions.stuck") + ".")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted whitespace-nowrap">{t('sessionActions.stuck')}</button>
-            <button onClick={() => setMessage(t("sessionActions.explainConcept") + "?")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted whitespace-nowrap">{t('sessionActions.explainConcept')}</button>
-            <button onClick={() => setMessage(t("sessionActions.smallerHint") + "?")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted whitespace-nowrap">{t('sessionActions.smallerHint')}</button>
-            <button onClick={() => setMessage(t("sessionActions.explainDifferently") + "?")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted whitespace-nowrap">{t('sessionActions.explainDifferently')}</button>
-            <button onClick={() => setMessage(t("sessionActions.reportIssue") + ", ")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted whitespace-nowrap">{t('sessionActions.reportIssue')}</button>
+            <button disabled={!sessionIsActive} onClick={() => setMessage(t("sessionActions.checkStep") + ": ")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.checkStep')}</button>
+            <button disabled={!sessionIsActive} onClick={() => setMessage(t("sessionActions.stuck") + ".")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.stuck')}</button>
+            <button disabled={!sessionIsActive} onClick={() => setMessage(t("sessionActions.explainConcept") + "?")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.explainConcept')}</button>
+            <button disabled={!sessionIsActive} onClick={() => setMessage(t("sessionActions.smallerHint") + "?")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.smallerHint')}</button>
+            <button disabled={!sessionIsActive} onClick={() => setMessage(t("sessionActions.explainDifferently") + "?")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.explainDifferently')}</button>
+            <button disabled={!sessionIsActive} onClick={() => setMessage(t("sessionActions.reportIssue") + ", ")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.reportIssue')}</button>
           </div>
         </div>
       </div>

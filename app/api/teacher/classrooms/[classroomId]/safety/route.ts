@@ -39,7 +39,7 @@ export async function GET(
     }
 
     const members = await loadClassroomMembers(classroomId);
-    const review = await loadSafetyReview(members);
+    const review = await loadSafetyReview(members, classroomId);
 
     await writeAuditLog({
       actorId: auth.uid,
@@ -92,7 +92,7 @@ export async function POST(
     // check, owning any one classroom would let a teacher close a flag for any
     // student in the project by supplying its id.
     const members = await loadClassroomMembers(classroomId);
-    const review = await loadSafetyReview(members);
+    const review = await loadSafetyReview(members, classroomId);
     if (!review.flags.some((flag) => flag.id === eventId)) {
       // 404, consistent with the ownership failure above: an id outside the
       // roster is indistinguishable from one that does not exist.

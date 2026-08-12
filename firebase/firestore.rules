@@ -64,6 +64,14 @@ service cloud.firestore {
         get(/databases/$(database)/documents/learningSessions/$(sessionId)).data.studentId == request.auth.uid;
     }
 
+    // Transcript mutation is an educational write, unlike reads of historical
+    // sessions.  Keep this separate from ownsSession so completed transcripts
+    // remain readable while their evidence remains final.
+    function ownsActiveSession(sessionId) {
+      return ownsSession(sessionId) &&
+        get(/databases/$(database)/documents/learningSessions/$(sessionId)).data.status == 'active';
+    }
+
     // users
     //
     // Role is chosen once at onboarding and is immutable from the client after
@@ -84,7 +92,43 @@ service cloud.firestore {
     match /studentProfiles/{userId} {
       allow get: if isSelf(userId) || isAdmin();
       allow list: if isAdmin();
-      allow create, update: if isSelf(userId) || isAdmin();
+      // Profile values are either student preferences (grade, presentation
+      // strictness and accessibility settings) or server/teacher-owned data.
+      // The policy resolver deliberately never treats the student preference as
+      // an authorization input.  Keep the client schema narrow so it cannot add
+      // a field that a future server path might accidentally trust.
+      allow create: if isSelf(userId) &&
+        request.resource.data.userId == userId &&
+        request.resource.data.keys().hasOnly([
+          'userId', 'grade', 'subjects', 'classroomIds', 'assistanceProfile',
+          'consentStatus', 'createdAt', 'updatedAt'
+        ]) &&
+        request.resource.data.grade is int &&
+        request.resource.data.grade >= 1 && request.resource.data.grade <= 12 &&
+        request.resource.data.assistanceProfile is map &&
+        request.resource.data.assistanceProfile.keys().hasOnly([
+          'defaultStrictness', 'accessibilitySettings'
+        ]) &&
+        request.resource.data.assistanceProfile.defaultStrictness in [
+          'supportive', 'balanced', 'independence'
+        ] &&
+        request.resource.data.assistanceProfile.accessibilitySettings is list;
+      allow update: if (isSelf(userId) &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'grade', 'assistanceProfile', 'updatedAt'
+          ]) &&
+          request.resource.data.grade is int &&
+          request.resource.data.grade >= 1 && request.resource.data.grade <= 12 &&
+          (!('assistanceProfile' in request.resource.data) ||
+            (request.resource.data.assistanceProfile is map &&
+             request.resource.data.assistanceProfile.keys().hasOnly([
+               'defaultStrictness', 'accessibilitySettings'
+             ]) &&
+             request.resource.data.assistanceProfile.defaultStrictness in [
+               'supportive', 'balanced', 'independence'
+             ] &&
+             request.resource.data.assistanceProfile.accessibilitySettings is list))) || isAdmin();
       allow delete: if isAdmin();
     }
 
@@ -131,20 +175,22 @@ service cloud.firestore {
 
     // classroomMemberships
     //
-    // A student may enroll only themselves, only as a student, and only at the
-    // deterministic id the membership lookups above depend on.
+    // Join-code verification is intentionally server-only.  A browser cannot
+    // create a membership, even at the deterministic id, because that would
+    // bypass both the secret and the server-side rate limit.
     match /classroomMemberships/{membershipId} {
       allow get, list: if isSignedIn() && (
         resource.data.userId == request.auth.uid ||
         ownsClassroom(resource.data.classroomId) ||
         isAdmin());
-      allow create: if isSignedIn() &&
-        request.resource.data.userId == request.auth.uid &&
-        membershipId == request.resource.data.classroomId + '__' + request.auth.uid &&
-        request.resource.data.role == 'student' &&
-        request.resource.data.status == 'active' &&
-        exists(/databases/$(database)/documents/classrooms/$(request.resource.data.classroomId));
-      allow update, delete: if isSignedIn() && ownsClassroom(resource.data.classroomId);
+      allow create: if false;
+      // Classroom owners may moderate an existing membership, but cannot use an
+      // update to move it across tenants or change who/what role it represents.
+      allow update: if isSignedIn() && ownsClassroom(resource.data.classroomId) &&
+        request.resource.data.classroomId == resource.data.classroomId &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.role == resource.data.role;
+      allow delete: if isSignedIn() && ownsClassroom(resource.data.classroomId);
     }
 
     match /assignments/{assignmentId} {
@@ -155,7 +201,14 @@ service cloud.firestore {
       allow create: if hasRole('teacher') &&
         request.resource.data.teacherId == request.auth.uid &&
         ownsClassroom(request.resource.data.classroomId);
-      allow update, delete: if isSignedIn() && resource.data.teacherId == request.auth.uid;
+      allow update: if isSignedIn() &&
+        resource.data.teacherId == request.auth.uid &&
+        ownsClassroom(resource.data.classroomId) &&
+        request.resource.data.teacherId == resource.data.teacherId &&
+        request.resource.data.classroomId == resource.data.classroomId;
+      allow delete: if isSignedIn() &&
+        resource.data.teacherId == request.auth.uid &&
+        ownsClassroom(resource.data.classroomId);
     }
 
     // assignmentReferences
@@ -281,7 +334,7 @@ service cloud.firestore {
       allow create: if isSignedIn() &&
         request.resource.data.studentId == request.auth.uid &&
         request.resource.data.actor == 'student' &&
-        ownsSession(request.resource.data.sessionId) &&
+        ownsActiveSession(request.resource.data.sessionId) &&
         request.resource.data.keys().hasOnly([
           'sessionId', 'studentId', 'actor', 'content', 'sequence', 'createdAt'
         ]) &&

@@ -31,7 +31,7 @@ let mockPolicy: any = {};
 vi.mock('@/lib/session/policy-inputs', () => ({
   loadTranscript: vi.fn().mockResolvedValue([]),
   resolvePolicyInputs: vi.fn().mockImplementation(() => Promise.resolve({
-    status: 'resolved',
+    status: mockPolicy.resolutionStatus ?? 'ok',
     inputs: mockPolicy
   })),
 }));
@@ -101,6 +101,13 @@ describe('POST /api/session/chat', () => {
     expect(modelSpy).not.toHaveBeenCalled();
   });
 
+  test.each(['completed', 'abandoned'])('rejects a %s session before model or scoring work', async (status) => {
+    mockPolicy.resolutionStatus = 'closed';
+    const res = await POST(validRequest());
+    expect(res.status).toBe(409);
+    expect(modelSpy).not.toHaveBeenCalled();
+  });
+
   test('F2. semantic judge malformed JSON fails closed', async () => {
     modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
     modelSpy.mockResolvedValueOnce({
@@ -118,6 +125,8 @@ describe('POST /api/session/chat', () => {
     const data = await res.json();
 
     expect(data.tutorData.messageMarkdown).toContain('I started to answer with more than you should see at this point');
+    expect(data.tutorData.hintLevel).toBe(0);
+    expect(data.sessionState.currentHintLevel).toBe(1);
     expect(modelSpy).toHaveBeenCalledTimes(3);
   });
 
@@ -179,7 +188,11 @@ describe('POST /api/session/chat', () => {
 
     expect(data.tutorData.messageMarkdown).toContain('I started to answer with more than you should see at this point');
     expect(data.tutorData.messageMarkdown).not.toContain('Try subtracting three');
-    expect(modelSpy).toHaveBeenCalledTimes(2);
+    expect(data.tutorData.hintLevel).toBe(0);
+    expect(data.sessionState.currentHintLevel).toBe(1);
+    // A supported standalone linear equation derives a server-side reference,
+    // then the semantic judge fail-closes when it cannot clear the prose.
+    expect(modelSpy).toHaveBeenCalledTimes(3);
   });
 
   test('B. semantic judge leak blocks', async () => {

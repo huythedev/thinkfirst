@@ -148,13 +148,13 @@ const MESSAGES: Record<SafetyLocale, MessageSet> = {
       'today. You deserve support from someone who can actually be there with you.',
     teacher_review:
       "I'm sorry this is happening. This isn't something I can help with as a study tool, and a " +
-      'teacher or counsellor at your school is the right person to tell. I have let your teacher ' +
-      "know that you may want to talk, and I haven't shared what you wrote with your classmates.",
+      'teacher or counsellor at your school is the right person to tell. Please contact a trusted ' +
+      "adult directly. I haven't shared what you wrote with your classmates.",
     educational_redirect:
       "I can't help with that here. This space is for schoolwork, so let's stay with your problem. " +
       "If you have a question about the work you're studying, tell me where you got stuck.",
     abuse_report:
-      "I can't help with that. This has been recorded for review by an administrator.",
+      "I can't help with that. Please keep this space focused on schoolwork.",
     resourcesHeading: 'Where to get help',
     trustedAdultHeading: 'What you can do now',
   },
@@ -165,13 +165,13 @@ const MESSAGES: Record<SafetyLocale, MessageSet> = {
       'em hãy nói với một người lớn mà em tin tưởng. Em xứng đáng được một người ở bên cạnh giúp em.',
     teacher_review:
       'Thầy cô rất tiếc vì chuyện này đang xảy ra. Đây không phải điều một công cụ học tập giúp ' +
-      'được, và giáo viên hoặc cán bộ tư vấn ở trường là người em nên nói. Thầy cô đã báo cho giáo ' +
-      'viên biết rằng em có thể muốn trò chuyện, và không chia sẻ điều em viết với các bạn cùng lớp.',
+      'được, và giáo viên hoặc cán bộ tư vấn ở trường là người em nên nói. Em hãy trực tiếp nói với ' +
+      'một người lớn mà em tin tưởng. Thầy cô không chia sẻ điều em viết với các bạn cùng lớp.',
     educational_redirect:
       'Thầy cô không thể giúp việc đó ở đây. Không gian này dành cho bài học, nên mình quay lại bài ' +
       'của em nhé. Nếu em có câu hỏi về phần đang học, hãy nói cho thầy cô biết em đang mắc ở đâu.',
     abuse_report:
-      'Thầy cô không thể giúp việc đó. Nội dung này đã được ghi lại để người quản trị xem xét.',
+      'Thầy cô không thể giúp việc đó. Em hãy giữ không gian này tập trung vào việc học.',
     resourcesHeading: 'Nơi em có thể tìm giúp đỡ',
     trustedAdultHeading: 'Em có thể làm ngay',
   },
@@ -182,6 +182,26 @@ export interface SafetyResponse {
   responseClass: SafetyResponseClass;
   flagForTeacherReview: boolean;
   resources: LocalSafetyResources;
+}
+
+/**
+ * Adds only claims the server can prove about the local review workflow. A
+ * review record is not a delivered notification, so this deliberately never
+ * says a teacher has been told.
+ */
+export function messageWithReviewStatus(
+  response: SafetyResponse,
+  language: SafetyLocale,
+  reviewRecorded: boolean,
+  reviewerAvailable: boolean,
+): string {
+  if (!response.flagForTeacherReview || !reviewRecorded || !reviewerAvailable) {
+    return response.messageMarkdown;
+  }
+  const recorded = language === 'vi'
+    ? 'Một cờ xem xét đã được tạo cho người phù hợp tại trường của em.'
+    : 'A review flag has been created for an appropriate person at your school.';
+  return `${response.messageMarkdown}\n\n${recorded}`;
 }
 
 /**

@@ -132,8 +132,8 @@ describe('resolvePolicyFromDocuments precedence', () => {
       studentProfile: { grade: 4, assistanceProfile: { defaultStrictness: 'independence' } },
     });
 
-    expect(resolved.strictness).toBe('independence');
-    expect(resolved.sources.strictness).toBe('studentProfile');
+    expect(resolved.strictness).toBe('balanced');
+    expect(resolved.sources.strictness).toBe('default');
     expect(resolved.grade).toBe(4);
   });
 

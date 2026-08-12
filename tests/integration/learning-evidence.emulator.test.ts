@@ -337,4 +337,31 @@ describe('persistSessionEvidence writes trusted evidence with real credentials',
       expect(result.profile.score).toBeLessThanOrEqual(98);
     }
   });
+
+  it('replays the per-session cap so A recomputation cannot erase B', async () => {
+    const studentId = 'evidence-multi-session-clamp';
+    const sessionA = await seedSession({ suffix: 'multi-a', studentId, withRubric: true });
+    const sessionB = await seedSession({ suffix: 'multi-b', studentId, withTransfer: 'declined' });
+    await adminDb.collection('learningSessions').doc(sessionA).update({
+      startedAt: new Date('2026-03-01T10:00:00Z'),
+      completedAt: new Date('2026-03-01T10:30:00Z'),
+    });
+    await adminDb.collection('learningSessions').doc(sessionB).update({
+      startedAt: new Date('2026-03-02T10:00:00Z'),
+      completedAt: new Date('2026-03-02T10:30:00Z'),
+    });
+    await adminDb.collection('independenceSnapshots').doc(`${studentId}__profile__${SCORING_VERSION}`).set({
+      studentId, kind: 'profile', totalScore: 40,
+      scoringVersion: SCORING_VERSION, generatedAt: new Date('2026-02-28T09:00:00Z'),
+    });
+
+    await scoring.persistSessionEvidence(studentId, sessionA);
+    const afterB = await scoring.persistSessionEvidence(studentId, sessionB);
+    const afterARecompute = await scoring.persistSessionEvidence(studentId, sessionA);
+
+    expect(afterARecompute.profile.score).toBe(afterB.profile.score);
+    if (afterARecompute.profile.score !== null) {
+      expect(Math.abs(afterARecompute.profile.score - 40)).toBeLessThanOrEqual(16);
+    }
+  });
 });

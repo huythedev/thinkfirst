@@ -213,7 +213,8 @@ describe('the endpoint consumes the safety classification', () => {
     expect(body.tutorData.finalAnswerIncluded).toBe(false);
     expect(body.tutorData.hintLevel).toBe(0);
     expect(body.safety.responseClass).toBe('emergency_guidance');
-    expect(body.safety.teacherNotified).toBe(true);
+    expect(body.safety.reviewRequested).toBe(true);
+    expect(body.safety.reviewRecorded).toBe(true);
   });
 
   it('records a safety event for the disclosure', async () => {
@@ -279,7 +280,8 @@ describe('the endpoint consumes the safety classification', () => {
     const body = await response.json();
 
     expect(body.safety.responseClass).toBe('educational_redirect');
-    expect(body.safety.teacherNotified).toBe(false);
+    expect(body.safety.reviewRequested).toBe(false);
+    expect(body.safety.reviewRecorded).toBe(true);
     expect(recordSafetyEvent.mock.calls[0][0].flagForTeacherReview).toBe(false);
     // Still no tutor call: the redirect is deterministic too.
     expect(generateContent).toHaveBeenCalledTimes(1);
@@ -315,14 +317,17 @@ describe('the endpoint consumes the safety classification', () => {
           finalAnswerIncluded: false,
           internalConceptTags: ['linear-equations'],
         }),
+      })
+      .mockResolvedValueOnce({
+        text: JSON.stringify({ verdict: 'safe', confidence: 0.95, reasonCode: 'no_disclosure' }),
       });
 
     const response = await POST(request({ message: 'I subtracted 7', sessionId: 's1' }) as never);
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    // Two calls: classifier and tutor. The safety branch was not taken.
-    expect(generateContent).toHaveBeenCalledTimes(2);
+    // Classifier, tutor and semantic judge. The safety branch was not taken.
+    expect(generateContent).toHaveBeenCalledTimes(3);
     expect(body.tutorData.responseType).not.toBe('safety_message');
     expect(body.safety).toBeUndefined();
   });

@@ -199,7 +199,8 @@ describe('enforceResponsePlan', () => {
     expect(result.violations).toContain('hint_level_above_plan');
     expect(result.messageWithheld).toBe(true);
     expect(result.response.messageMarkdown).not.toContain('x = 4');
-    expect(result.response.hintLevel).toBe(2);
+    // The delivered fallback is a question for the student's work, not a level-2 hint.
+    expect(result.response.hintLevel).toBe(0);
   });
 
   it('withholds prose when a final answer is included against the plan', () => {
