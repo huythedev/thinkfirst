@@ -84,6 +84,10 @@ describe('Transfer Chat Integration', () => {
     for (const doc of attempts.docs) await doc.ref.delete();
     const problems = await adminDb.collection('transferProblems').where('sessionId', '==', SESSION).get();
     for (const doc of problems.docs) await doc.ref.delete();
+    const metadata = await adminDb.collection('sessionTurnInternalMetadata').where('sessionId', '==', SESSION).get();
+    for (const doc of metadata.docs) await doc.ref.delete();
+    const ledger = await adminDb.collection('sessionRequestLedger').where('sessionId', '==', SESSION).get();
+    for (const doc of ledger.docs) await doc.ref.delete();
   });
 
   it('c. evaluator is CALLED only after validateAnswer() returns unsupported', async () => {
@@ -169,5 +173,42 @@ describe('Transfer Chat Integration', () => {
     expect(data.evaluation.transferOutcome).toBe('independent_correct');
     expect(data.evaluation.correctnessSource).toBe('deterministic');
     expect(data.evaluation.studentAnswer).toBe('x = 4'); // NOT 'wrong-eval-answer'
+  });
+
+  it('commits exactly one ordered exchange when two requests resolve revision zero together', async () => {
+    const request = (message: string, clientRequestId: string) => new NextRequest('http://localhost/api/session/chat', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId: SESSION, message, clientRequestId }),
+    });
+
+    const [a, b] = await Promise.all([
+      POST(request('I tried subtracting 2 first.', '00000000-0000-4000-8000-000000000001')),
+      POST(request('I tried dividing both sides.', '00000000-0000-4000-8000-000000000002')),
+    ]);
+
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    const session = (await adminDb.collection('learningSessions').doc(SESSION).get()).data()!;
+    expect(session.revision).toBe(1);
+    expect(session.nextTurnSequence).toBe(2);
+
+    const turns = await adminDb.collection('sessionTurns').where('sessionId', '==', SESSION).get();
+    const ordered = turns.docs.map((doc) => doc.data()).sort((left, right) => left.sequence - right.sequence);
+    expect(ordered).toHaveLength(2);
+    expect(ordered.map((turn) => [turn.sequence, turn.actor])).toEqual([[0, 'student'], [1, 'assistant']]);
+  });
+
+  it('replays a stable request id without another exchange', async () => {
+    const body = JSON.stringify({
+      sessionId: SESSION,
+      message: 'I tried subtracting 2 first.',
+      clientRequestId: '00000000-0000-4000-8000-000000000003',
+    });
+    const first = await POST(new NextRequest('http://localhost/api/session/chat', { method: 'POST', body }));
+    const replay = await POST(new NextRequest('http://localhost/api/session/chat', { method: 'POST', body }));
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(200);
+    expect((await replay.json()).idempotentReplay).toBe(true);
+    expect((await adminDb.collection('sessionTurns').where('sessionId', '==', SESSION).get()).size).toBe(2);
   });
 });

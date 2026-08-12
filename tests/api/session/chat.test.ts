@@ -150,7 +150,9 @@ describe('POST /api/session/chat', () => {
     expect(res.status).toBe(200);
     expect(visible).not.toContain('x = 5');
     expect(body.tutorData.internalConceptTags).toEqual([]);
-    expect(transactionSet).toHaveBeenCalledOnce();
+    // Student turn, assistant turn and server-only classifier metadata are one
+    // transaction; no browser-authored turn is involved.
+    expect(transactionSet).toHaveBeenCalledTimes(3);
     expect(JSON.stringify(transactionSet.mock.calls[0][1])).not.toContain('x = 5');
   });
 

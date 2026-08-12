@@ -22,7 +22,8 @@
     "emulators": "firebase emulators:start --project thinkfirst-huythedeev",
     "verify:workspace": "node scripts/verify-workspace-e2e.mjs",
     "verify:images": "node scripts/verify-image-input-e2e.mjs",
-    "verify:safety": "node scripts/verify-safety-e2e.mjs"
+    "verify:safety": "node scripts/verify-safety-e2e.mjs",
+    "migrate:model-output-boundaries": "tsx scripts/migrate-model-output-boundaries.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

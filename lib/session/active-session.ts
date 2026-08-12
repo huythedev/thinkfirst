@@ -74,3 +74,29 @@ export async function commitForSessionRevision<T>(input: {
     return result;
   });
 }
+
+/**
+ * Records an unexpected request failure only if this request still owns the
+ * session state it resolved.  A loser of the optimistic-concurrency race must
+ * never turn a newer, successful tutoring exchange into a system-error session.
+ */
+export async function markSessionSystemErrorForRevision(
+  sessionId: string,
+  expectedRevision: number,
+): Promise<boolean> {
+  const sessionRef = adminDb.collection('learningSessions').doc(sessionId);
+  return adminDb.runTransaction(async (transaction) => {
+    const current = await transaction.get(sessionRef);
+    const data = current.data() ?? {};
+    if (!current.exists || data.status !== 'active') return false;
+    const revision = typeof data.revision === 'number' && Number.isFinite(data.revision)
+      ? Math.max(0, Math.trunc(data.revision))
+      : 0;
+    if (revision !== expectedRevision) return false;
+    transaction.update(sessionRef, {
+      endedWithSystemError: true,
+      updatedAt: new Date(),
+    });
+    return true;
+  });
+}

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { db } from '@/lib/firebase/config';
-import { doc, onSnapshot, collection, query, where, orderBy, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, orderBy, updateDoc } from 'firebase/firestore';
 import { TutorMarkdown } from '@/components/TutorMarkdown';
 import { LiveScorePanel } from '@/components/LiveScorePanel';
 import { useLiveSessionScore } from '@/hooks/use-live-session-score';
@@ -29,6 +29,10 @@ export default function LearningWorkspace() {
   const [mobilePanel, setMobilePanel] = useState<'problem' | 'chat' | 'scratchpad'>('chat');
   const [transferProblem, setTransferProblem] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // One user action owns one idempotency key. Keep it after a transient network
+  // error so a retry asks the server for the already-committed exchange instead
+  // of creating another student/assistant pair.
+  const pendingSendRef = useRef<{ message: string; clientRequestId: string } | null>(null);
 
   // The server writes evaluator-backed evidence to a deterministic snapshot.
   // This listener deliberately never recomputes a score from browser state.
@@ -99,31 +103,23 @@ export default function LearningWorkspace() {
     
     setSending(true);
     setSendError(null);
-    const userMsg = message;
+    const userMsg = message.trim();
+    const pending = pendingSendRef.current;
+    const clientRequestId = pending?.message === userMsg
+      ? pending.clientRequestId
+      : crypto.randomUUID();
+    pendingSendRef.current = { message: userMsg, clientRequestId };
     setMessage('');
     
     try {
-      const newSequence = turns.length + 1;
-      const studentTurnId = crypto.randomUUID();
-      const studentTurnData = {
-        sessionId,
-        studentId: user.uid,
-        actor: 'student' as const,
-        content: userMsg,
-        sequence: newSequence,
-        createdAt: serverTimestamp(),
-      };
-      await setDoc(doc(db, 'sessionTurns', studentTurnId), studentTurnData);
-
-      // Only the session id and the student's message cross this boundary. Every
-      // policy input is read server-side, and the transcript is read from
-      // Firestore, so neither is sent from here.
+      // The server owns both transcript writes, their sequence allocation and
+      // the revision/CAS check. The browser sends no policy or turn metadata.
       const res = await fetch(window.location.origin + '/api/session/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message: userMsg, sessionId, clientRequestId: crypto.randomUUID() }),
+        body: JSON.stringify({ message: userMsg, sessionId, clientRequestId }),
       });
 
       if (!res.ok) {
@@ -135,13 +131,13 @@ export default function LearningWorkspace() {
             ? `about ${retryAfter} second${retryAfter === 1 ? '' : 's'}`
             : 'a moment';
           throw new Error(
-            `You are sending messages faster than the tutor can keep up. Your message was saved. Please wait ${wait} and try again.`,
+            `You are sending messages faster than the tutor can keep up. Please wait ${wait} and try again.`,
           );
         }
         throw new Error(
           res.status === 503
-            ? 'The tutor is not available right now. Your message was saved.'
-            : 'The tutor could not respond. Your message was saved, so you can try again.',
+            ? 'The tutor is not available right now. Please try again.'
+            : 'The tutor could not respond. Please try again.',
         );
       }
 
@@ -151,6 +147,7 @@ export default function LearningWorkspace() {
       // lists among the values a client must never author. `currentHintLevel`
       // reaches the UI the same way.
       const data = await res.json();
+      pendingSendRef.current = null;
       
       if (data.evidence?.transferEvaluated) {
         setTransferProblem(null);

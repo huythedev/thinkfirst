@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T12:38:06.551Z",
+  "generatedAt": "2026-08-12T14:30:27.986Z",
   "totalCases": 127,
   "driver": "deterministic",
   "categoryCoverage": [
@@ -126,6 +126,21 @@
     "transferObligation": {
       "passed": 4,
       "total": 4,
+      "rate": 100
+    },
+    "tutorForbiddenLeakage": {
+      "passed": 22,
+      "total": 22,
+      "rate": 100
+    },
+    "classifierStudentVisibleLeakage": {
+      "passed": 127,
+      "total": 127,
+      "rate": 100
+    },
+    "transferForbiddenLeakage": {
+      "passed": 3,
+      "total": 3,
       "rate": 100
     },
     "diagnosticBreakdowns": {

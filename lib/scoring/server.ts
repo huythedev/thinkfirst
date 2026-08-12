@@ -86,7 +86,7 @@ export async function loadSessionMetrics(studentId: string): Promise<SessionMetr
 
   const ids = recent.map((session) => session.id);
 
-  const [turnBatches, attemptBatches] = await Promise.all([
+  const [turnBatches, attemptBatches, metadataBatches] = await Promise.all([
     Promise.all(
       chunk(ids, IN_CHUNK_SIZE).map((batch) =>
         adminDb.collection('sessionTurns').where('sessionId', 'in', batch).get(),
@@ -95,6 +95,11 @@ export async function loadSessionMetrics(studentId: string): Promise<SessionMetr
     Promise.all(
       chunk(ids, IN_CHUNK_SIZE).map((batch) =>
         adminDb.collection('studentAttempts').where('sessionId', 'in', batch).get(),
+      ),
+    ),
+    Promise.all(
+      chunk(ids, IN_CHUNK_SIZE).map((batch) =>
+        adminDb.collection('sessionTurnInternalMetadata').where('sessionId', 'in', batch).get(),
       ),
     ),
   ]);
@@ -121,9 +126,23 @@ export async function loadSessionMetrics(studentId: string): Promise<SessionMetr
     }
   }
 
+  // Classifier topic prose deliberately never lives in a readable session turn.
+  // Restore only the server-side topic needed by scoring and mastery here.
+  const topicBySession = new Map<string, string>();
+  for (const batch of metadataBatches) {
+    for (const docSnap of batch.docs) {
+      const metadata = docSnap.data() as Record<string, unknown>;
+      const sessionId = typeof metadata.sessionId === 'string' ? metadata.sessionId : null;
+      const topic = typeof metadata.topic === 'string' ? metadata.topic.trim() : '';
+      if (sessionId && topic && !topicBySession.has(sessionId)) {
+        topicBySession.set(sessionId, topic);
+      }
+    }
+  }
+
   return recent.map((session) =>
     deriveSessionMetrics(
-      session,
+      { ...session, topic: topicBySession.get(session.id) ?? session.topic },
       turnsBySession.get(session.id) ?? [],
       attemptsBySession.get(session.id) ?? [],
     ),

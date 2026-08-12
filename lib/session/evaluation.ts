@@ -321,20 +321,27 @@ async function isSafeTransferForStudent(
       : [{ answer: context.protectedOriginalAnswer, sourceProblem: context.problem }]),
   ];
 
+  const unavailableReferences: typeof references = [];
+  // Complete every deterministic check before consulting the model. That gives
+  // a protected-original-answer leak the same final authority as an own-answer
+  // leak even if a previous reference happened to be unsupported.
   for (const reference of references) {
-    let verdict = validateSemanticDisclosure({
+    const deterministic = validateSemanticDisclosure({
       messageMarkdown: visible,
       referenceAnswer: reference.answer,
       subject,
       fullSolutionAllowedThisTurn: false,
     });
-    if (verdict.verdict === 'safe') continue;
+    // Deterministic leakage is final. A generative judge is only a strict
+    // fallback for syntax the deterministic validator cannot support; it is
+    // never an appeal that can upgrade a known leak to safe.
+    if (deterministic.verdict === 'leak') return false;
+    if (deterministic.verdict === 'safe') continue;
 
-    // Unit callers without a subject are exercising internal generation only;
-    // production always supplies the resolved subject and therefore takes the
-    // strict semantic-judge path below before anything is issued.
-    if (!context.subject && verdict.verdict === 'unavailable') continue;
+    unavailableReferences.push(reference);
+  }
 
+  for (const reference of unavailableReferences) {
     // Unsupported deterministic parsing must not become permission. The strict
     // judge is shared with tutor disclosure and maps malformed/low-confidence/
     // unavailable outcomes to unsafe.
@@ -348,8 +355,7 @@ async function isSafeTransferForStudent(
         mayRevealFinalAnswer: false,
       },
     });
-    verdict = judged;
-    if (verdict.verdict !== 'safe') return false;
+    if (judged.verdict !== 'safe') return false;
   }
   return true;
 }

@@ -327,7 +327,7 @@ export async function deterministicModelHandler(
   if (combined.includes('You are ThinkFirst, an adaptive educational assistant')) {
     return { text: JSON.stringify(tutorResponse(systemInstruction, latestStudentMessage(userText))) };
   }
-  if (combined.includes('transfer')) {
+  if (combined.includes('transfer') && !combined.includes('You are a semantic disclosure judge.')) {
     return { text: JSON.stringify(TRANSFER) };
   }
   if (combined.includes('extraction') || combined.includes('image')) {

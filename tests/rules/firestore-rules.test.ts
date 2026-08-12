@@ -439,9 +439,9 @@ describe('cross-student session isolation', () => {
     );
   });
 
-  it('the owning student can append a turn to their active session', async () => {
+  it('the owning student cannot append a turn; the chat endpoint owns transcript writes', async () => {
     await seed();
-    await assertSucceeds(
+    await assertFails(
       setDoc(doc(asStudentA(), 'sessionTurns', 'turn-new'), {
         sessionId: 'session-a',
         studentId: STUDENT_A,
@@ -582,6 +582,8 @@ describe('cross-student session isolation', () => {
         status: 'active',
         originalProblem: 'Solve 2x = 8',
         currentHintLevel: 0,
+        nextTurnSequence: 0,
+        revision: 0,
         startedAt: serverTimestamp(),
         policyVersion: 'policy-v2',
         scoringVersion: 'scoring-v2',

@@ -295,7 +295,9 @@ describe('the endpoint consumes the safety classification', () => {
 
     await POST(request({ message: 'I want to hurt myself', sessionId: 's1' }) as never);
 
-    const turnWrite = turnSet.mock.calls.find(([name]) => name === 'sessionTurns');
+    const turnWrite = turnSet.mock.calls.find(
+      ([name, data]) => name === 'sessionTurns' && (data as Record<string, unknown>).actor === 'assistant',
+    );
     expect(turnWrite).toBeDefined();
     const turn = turnWrite![1] as Record<string, any>;
     expect(turn.actor).toBe('assistant');

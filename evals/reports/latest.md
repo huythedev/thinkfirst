@@ -1,6 +1,6 @@
 # ThinkFirst evaluation report
 
-- Generated: 2026-08-12T12:38:06.551Z
+- Generated: 2026-08-12T14:30:27.986Z
 - Cases: **127** (section 37 requires at least 100)
 - Driver: **deterministic** -- no live model call was made
 
@@ -36,6 +36,9 @@
 | Uncertainty communication | 100.0% (2/2) |
 | Age-appropriate register | 100.0% (6/6) |
 | Transfer obligation after full solution | 100.0% (4/4) |
+| Tutor forbidden leakage blocked | 100.0% (22/22) |
+| Classifier prose absent from student projection | 100.0% (127/127) |
+| Transfer forbidden leakage rejected | 100.0% (3/3) |
 
 ### Diagnostic Breakdowns
 

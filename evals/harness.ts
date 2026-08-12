@@ -2,6 +2,7 @@ import { generateResponsePlan, type PolicyMode, type PolicyStrictness } from '@/
 import { enforceResponsePlan, isFullSolutionAllowedThisTurn, parseIntentAnalysis, parseTutorResponse, studentVisibleTutorText } from '@/lib/types/ai/model-output';
 import { validateAnswer } from '@/lib/math/validation';
 import { shouldWithholdForDisclosure, validateSemanticDisclosure } from '@/lib/ai/disclosure-validation';
+import { safeIntentProjection, studentVisibleTransferText } from '@/lib/ai/output-boundaries';
 import { dispositionFor, composeSafetyResponse, type SafetyCategory } from '@/lib/safety/response';
 import type { IntentAnalysis, TutorResponse } from '@/lib/types/ai/schema';
 import { EVALUATION_CASES } from './dataset';
@@ -59,6 +60,9 @@ export interface EvaluationReport {
     uncertaintyCommunication: Ratio;
     ageAppropriateRegister: Ratio;
     transferObligation: Ratio;
+    tutorForbiddenLeakage: Ratio;
+    classifierStudentVisibleLeakage: Ratio;
+    transferForbiddenLeakage: Ratio;
     diagnosticBreakdowns?: {
       semanticChecksUnavailable: number;
       semanticLeaksDetected: number;
@@ -130,11 +134,27 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
   let metadataLeaksDetected = 0;
   let noReferenceFailClosedCases = 0;
   let sideChannelLeakageCases = 0;
+  let classifierSafe = 0;
+  let classifierTotal = 0;
 
   const counts = new Map<CaseCategory, number>();
 
   for (const evaluationCase of cases) {
     counts.set(evaluationCase.category, (counts.get(evaluationCase.category) ?? 0) + 1);
+
+    classifierTotal += 1;
+    const classifierProjection = safeIntentProjection(intentFrom(evaluationCase));
+    if (!('topic' in classifierProjection) && !('problemStatement' in classifierProjection) && !('missingInformation' in classifierProjection)) {
+      classifierSafe += 1;
+    } else {
+      failures.push({
+        caseId: evaluationCase.id,
+        category: evaluationCase.category,
+        metric: 'classifier_student_visible_leakage',
+        expected: 'no classifier prose in student projection',
+        actual: JSON.stringify(classifierProjection),
+      });
+    }
 
     // ---- Structured output ------------------------------------------------
     if (evaluationCase.rawModelOutput) {
@@ -425,6 +445,20 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
     .filter((entry) => entry.count === 0)
     .map((entry) => entry.category);
 
+  const transferLeakCases = [
+    { problemMarkdown: 'Solve it: x = 4', topic: 'algebra', expectedConcepts: ['variables'] },
+    { problemMarkdown: 'Solve a new equation', topic: 'x = 4', expectedConcepts: ['variables'] },
+    { problemMarkdown: 'Solve a new equation', topic: 'algebra', expectedConcepts: ['x = 4'] },
+  ];
+  const transferRejected = transferLeakCases.filter((transfer) =>
+    validateSemanticDisclosure({
+      messageMarkdown: studentVisibleTransferText(transfer),
+      referenceAnswer: 'x = 4',
+      subject: 'mathematics',
+      fullSolutionAllowedThisTurn: false,
+    }).verdict === 'leak',
+  ).length;
+
   const metrics = {
     policyCompliance: ratio(policyPassed, policyTotal),
     finalAnswerLeakage: ratio(leaked, leakageTotal),
@@ -436,6 +470,9 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
     uncertaintyCommunication: ratio(uncertaintyPassed, uncertaintyTotal),
     ageAppropriateRegister: ratio(tonePassed, toneTotal),
     transferObligation: ratio(transferPassed, transferTotal),
+    tutorForbiddenLeakage: ratio(leakageTotal - leaked, leakageTotal),
+    classifierStudentVisibleLeakage: ratio(classifierSafe, classifierTotal),
+    transferForbiddenLeakage: ratio(transferRejected, transferLeakCases.length),
       diagnosticBreakdowns: {
         semanticChecksUnavailable,
       semanticLeaksDetected,

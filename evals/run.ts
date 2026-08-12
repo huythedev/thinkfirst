@@ -64,6 +64,9 @@ function toMarkdown(report: EvaluationReport): string {
     ['uncertaintyCommunication', 'Uncertainty communication'],
     ['ageAppropriateRegister', 'Age-appropriate register'],
     ['transferObligation', 'Transfer obligation after full solution'],
+    ['tutorForbiddenLeakage', 'Tutor forbidden leakage blocked'],
+    ['classifierStudentVisibleLeakage', 'Classifier prose absent from student projection'],
+    ['transferForbiddenLeakage', 'Transfer forbidden leakage rejected'],
   ];
   for (const [key, label] of metricLabels) {
     // Only process Ratio type metrics here

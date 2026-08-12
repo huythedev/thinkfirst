@@ -269,10 +269,12 @@ service cloud.firestore {
         request.resource.data.studentId == request.auth.uid &&
         request.resource.data.status == 'active' &&
         request.resource.data.currentHintLevel == 0 &&
+        request.resource.data.nextTurnSequence == 0 &&
+        request.resource.data.revision == 0 &&
         request.resource.data.keys().hasOnly([
           'studentId', 'subject', 'grade', 'language', 'mode', 'strictness',
           'status', 'originalProblem', 'imageId', 'currentHintLevel',
-          'startedAt', 'policyVersion', 'scoringVersion'
+          'nextTurnSequence', 'revision', 'startedAt', 'policyVersion', 'scoringVersion'
         ]) &&
         request.resource.data.subject in ['mathematics', 'science'] &&
         request.resource.data.grade is int &&
@@ -320,32 +322,26 @@ service cloud.firestore {
     // verified on create, otherwise one student could insert turns into another
     // student's session.
     //
-    // A client may author only its own 'student' turns. Assistant and system
-    // turns carry the policy decision -- responsePlan, rationaleCode,
-    // allowedHintLevel, mayRevealFinalAnswer -- which section 41.1 lists among the
-    // values never trusted from a client, so the tutoring endpoint writes them
-    // with Admin credentials, which bypass this rule. A browser that could author
-    // an assistant turn could also write the transcript that policy reads back,
-    // and so manufacture an attempt it never made.
+    // The server writes the complete student/assistant exchange in one revision
+    // transaction. Letting the browser append even a student turn would split
+    // ordering and CAS authority, allowing stale policy inputs and duplicates.
     match /sessionTurns/{turnId} {
       allow get, list: if isSignedIn() && (
         resource.data.studentId == request.auth.uid ||
         isAdmin());
-      allow create: if isSignedIn() &&
-        request.resource.data.studentId == request.auth.uid &&
-        request.resource.data.actor == 'student' &&
-        ownsActiveSession(request.resource.data.sessionId) &&
-        request.resource.data.keys().hasOnly([
-          'sessionId', 'studentId', 'actor', 'content', 'sequence', 'createdAt'
-        ]) &&
-        request.resource.data.sessionId is string &&
-        request.resource.data.content is string &&
-        request.resource.data.content.size() > 0 &&
-        request.resource.data.content.size() <= 20000 &&
-        request.resource.data.sequence is int &&
-        request.resource.data.sequence >= 0 &&
-        request.resource.data.createdAt is timestamp;
-      allow update, delete: if false;
+      allow create, update, delete: if false;
+    }
+
+    // Raw classifier and tutor-routing metadata. This is the server-only
+    // counterpart to the safe projection in sessionTurns.
+    match /sessionTurnInternalMetadata/{turnId} {
+      allow read, write: if false;
+    }
+
+    // Idempotency responses contain the committed result and are never a
+    // browser-readable collection.
+    match /sessionRequestLedger/{requestId} {
+      allow read, write: if false;
     }
 
     // studentAttempts

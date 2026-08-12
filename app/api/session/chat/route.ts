@@ -41,6 +41,7 @@ import {
   SessionClosedDuringRequestError,
   SessionRevisionConflictError,
   commitForSessionRevision,
+  markSessionSystemErrorForRevision,
   runWhileSessionActive,
 } from '@/lib/session/active-session';
 import {
@@ -92,6 +93,7 @@ export async function POST(req: NextRequest) {
   // Captured outside the try so the catch can flag the session: by then the
   // request body has been consumed and cannot be re-read.
   let failedSessionId: string | null = null;
+  let failedExpectedRevision: number | null = null;
 
   try {
     const auth = await verifyRequest(req);
@@ -160,14 +162,22 @@ export async function POST(req: NextRequest) {
     }
 
     const policy = resolution.inputs;
+    failedExpectedRevision = policy.revision ?? 0;
 
     if (clientRequestId) {
       const prior = await adminDb
         .collection('sessionRequestLedger')
         .doc(`${sessionId}__${clientRequestId}`)
         .get();
-      const priorResponse = prior.data()?.response;
+      const priorData = prior.data() ?? {};
+      const priorResponse = priorData.response;
       if (prior.exists && priorResponse && typeof priorResponse === 'object') {
+        if (priorData.message !== message) {
+          return NextResponse.json(
+            { error: 'This request id was already used for a different message.' },
+            { status: 409 },
+          );
+        }
         return NextResponse.json({
           ...(priorResponse as Record<string, unknown>),
           evidence: { attemptEvaluated: false, transferIssued: false, score: null, coverage: 0, suppressed: true },
@@ -260,11 +270,12 @@ export async function POST(req: NextRequest) {
         confidence: intentData.confidence,
         intentData,
         responsePlan: studentResponsePlan,
-        sequence: 0,
         classifierModel,
         latencyMs: Date.now() - startedAt,
         policy,
         expectedRevision: policy.revision ?? 0,
+        message,
+        clientRequestId,
       });
     }
 
@@ -401,6 +412,7 @@ Action: ${responsePlan.action}`;
     // Section 41.1 lists `rationaleCode`, `mayRevealFinalAnswer` and
     // `allowedHintLevel` among the values never trusted from a client, and the
     // rules now refuse a client-authored assistant turn.
+    const studentTurnRef = adminDb.collection('sessionTurns').doc();
     const turnRef = adminDb.collection('sessionTurns').doc();
 
     const committedResponse = {
@@ -417,9 +429,19 @@ Action: ${responsePlan.action}`;
         policySources: policy.sources,
       },
     };
-    await commitActiveTutorTurn({
+    try {
+      await commitActiveTutorTurn({
       sessionId,
+      studentTurnRef,
       turnRef,
+      studentTurn: {
+        id: studentTurnRef.id,
+        sessionId,
+        studentId: auth.uid,
+        actor: 'student',
+        content: message,
+        createdAt: FieldValue.serverTimestamp(),
+      },
       turn: {
         id: turnRef.id,
         sessionId,
@@ -444,7 +466,9 @@ Action: ${responsePlan.action}`;
           latencyMs,
           confidence: intentData.confidence,
           checkForUnderstanding: tutorData.checkForUnderstanding ?? null,
-          learningObjective: tutorData.learningObjective ?? null,
+          // Model-generated routing prose is retained only in the internal
+          // metadata record below, never on an owner-readable turn.
+          learningObjective: null,
           internalConceptTags: tutorData.internalConceptTags ?? [],
           planViolations: enforcement.violations,
           modelOutputRevalidated: true,
@@ -463,8 +487,41 @@ Action: ${responsePlan.action}`;
       persistedHintLevel,
       expectedRevision: policy.revision ?? 0,
       clientRequestId,
+      requestMessage: message,
       committedResponse,
-    });
+        internalMetadata: {
+        id: turnRef.id,
+        sessionId,
+        studentId: auth.uid,
+        topic: intentData.topic,
+        problemStatement: intentData.problemStatement,
+        missingInformation: intentData.missingInformation,
+        internalLearningObjective: tutorParse.value.learningObjective ?? responsePlan.learningObjective,
+        internalConceptTags: modelInternalConceptTags,
+        classifierPromptVersion: CLASSIFIER_PROMPT_VERSION,
+        createdAt: FieldValue.serverTimestamp(),
+        },
+      });
+    } catch (error) {
+      // A concurrent retry can reach the commit before its first response is
+      // observed. If the winner used this exact id/message, replay its durable
+      // result instead of reporting a misleading conflict.
+      if (error instanceof SessionRevisionConflictError && clientRequestId) {
+        const ledger = await adminDb
+          .collection('sessionRequestLedger')
+          .doc(`${sessionId}__${clientRequestId}`)
+          .get();
+        const prior = ledger.data() ?? {};
+        if (ledger.exists && prior.message === message && prior.response && typeof prior.response === 'object') {
+          return NextResponse.json({
+            ...(prior.response as Record<string, unknown>),
+            evidence: { attemptEvaluated: false, transferIssued: false, score: null, coverage: 0, suppressed: true },
+            idempotentReplay: true,
+          });
+        }
+      }
+      throw error;
+    }
 
     // Learning evidence. Everything below is server-authored: §56.4 forbids the
     // client writing a score, and a client that could author its own rubric
@@ -482,6 +539,9 @@ Action: ${responsePlan.action}`;
       responsePlan: deliveredResponsePlan,
       tutorData,
       internalConceptTags: modelInternalConceptTags,
+      internalLearningObjective: tutorParse.value.learningObjective ?? responsePlan.learningObjective,
+      internalTopic: intentData.topic,
+      trustedReferenceAnswer,
       transcriptTurns: transcript,
     });
 
@@ -510,8 +570,8 @@ Action: ${responsePlan.action}`;
     // §56.4: a session that failed with a system error is excluded from scoring
     // entirely, not scored as abandonment. That only works if the failure is
     // recorded, so the flag is written here rather than inferred later.
-    if (failedSessionId) {
-      await markSessionSystemError(failedSessionId).catch(() => undefined);
+    if (failedSessionId && failedExpectedRevision !== null) {
+      await markSessionSystemErrorForRevision(failedSessionId, failedExpectedRevision).catch(() => undefined);
     }
 
     // Internal messages can leak configuration detail, so they stay in the log.
@@ -526,12 +586,16 @@ Action: ${responsePlan.action}`;
  */
 async function commitActiveTutorTurn(input: {
   sessionId: string;
+  studentTurnRef: FirebaseFirestore.DocumentReference;
   turnRef: FirebaseFirestore.DocumentReference;
+  studentTurn: Record<string, unknown>;
   turn: Record<string, unknown>;
   persistedHintLevel: number;
   expectedRevision: number;
   clientRequestId?: string;
+  requestMessage: string;
   committedResponse?: Record<string, unknown>;
+  internalMetadata: Record<string, unknown>;
 }): Promise<void> {
   await commitForSessionRevision({
     sessionId: input.sessionId,
@@ -540,10 +604,18 @@ async function commitActiveTutorTurn(input: {
     const sequence = typeof current.nextTurnSequence === 'number'
       ? Math.max(0, Math.trunc(current.nextTurnSequence))
       : 0;
-    transaction.set(input.turnRef, { ...input.turn, sequence });
+    // A tutoring exchange is indivisible: the incoming student message, its
+    // response, server-only metadata, ledger entry and revision share this one
+    // transaction. No client-derived transcript length participates.
+    transaction.set(input.studentTurnRef, { ...input.studentTurn, sequence });
+    transaction.set(input.turnRef, { ...input.turn, sequence: sequence + 1 });
+    transaction.set(
+      adminDb.collection('sessionTurnInternalMetadata').doc(input.turnRef.id),
+      input.internalMetadata,
+    );
     transaction.update(sessionRef, {
       currentHintLevel: input.persistedHintLevel,
-      nextTurnSequence: sequence + 1,
+      nextTurnSequence: sequence + 2,
     });
     if (input.clientRequestId && input.committedResponse) {
       transaction.set(
@@ -552,21 +624,13 @@ async function commitActiveTutorTurn(input: {
           sessionId: input.sessionId,
           requestId: input.clientRequestId,
           turnId: input.turnRef.id,
+          message: input.requestMessage,
           response: input.committedResponse,
           createdAt: FieldValue.serverTimestamp(),
         },
       );
     }
     },
-  });
-}
-
-async function markSessionSystemError(sessionId: string): Promise<void> {
-  await runWhileSessionActive(sessionId, (transaction) => {
-    transaction.update(adminDb.collection('learningSessions').doc(sessionId), {
-      endedWithSystemError: true,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
   });
 }
 
@@ -578,11 +642,12 @@ interface SafetyTurnInput {
   confidence: number;
   intentData: IntentAnalysis;
   responsePlan: TutorResponsePlan;
-  sequence: number;
   classifierModel: string;
   latencyMs: number;
   policy: ResolvedPolicyInputs;
   expectedRevision: number;
+  message: string;
+  clientRequestId?: string;
 }
 
 /**
@@ -618,6 +683,7 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
     );
   }
 
+  const studentTurnRef = adminDb.collection('sessionTurns').doc();
   const turnRef = adminDb.collection('sessionTurns').doc();
   const reviewRecorded = !!(await recordSafetyEvent({
     sessionId: input.sessionId,
@@ -647,8 +713,7 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
     internalConceptTags: [],
   };
 
-  try {
-    await commitForSessionRevision({
+  await commitForSessionRevision({
       sessionId: input.sessionId,
       expectedRevision: input.expectedRevision,
       write: (transaction, sessionRef, _nextRevision, current) => {
@@ -657,12 +722,21 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
       // server-owned and avoids transcript.length races.
       const sequence = typeof current.nextTurnSequence === 'number'
         ? Math.max(0, Math.trunc(current.nextTurnSequence))
-        : input.sequence;
+        : 0;
+      transaction.set(studentTurnRef, {
+        id: studentTurnRef.id,
+        sessionId: input.sessionId,
+        studentId: input.studentId,
+        sequence,
+        actor: 'student',
+        content: input.message,
+        createdAt: FieldValue.serverTimestamp(),
+      });
       transaction.set(turnRef, {
       id: turnRef.id,
       sessionId: input.sessionId,
       studentId: input.studentId,
-      sequence,
+      sequence: sequence + 1,
       actor: 'assistant',
       content: tutorData.messageMarkdown,
       createdAt: FieldValue.serverTimestamp(),
@@ -696,17 +770,59 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
       // §56.4: this turn is not learning evidence and must not be scored as any.
       excludedFromScoring: true,
       });
+      transaction.set(
+        adminDb.collection('sessionTurnInternalMetadata').doc(turnRef.id),
+        {
+          id: turnRef.id,
+          sessionId: input.sessionId,
+          studentId: input.studentId,
+          topic: input.intentData.topic,
+          problemStatement: input.intentData.problemStatement,
+          missingInformation: input.intentData.missingInformation,
+          internalLearningObjective: null,
+          internalConceptTags: [],
+          classifierPromptVersion: CLASSIFIER_PROMPT_VERSION,
+          createdAt: FieldValue.serverTimestamp(),
+        },
+      );
       transaction.update(sessionRef, {
-        nextTurnSequence: sequence + 1,
+        nextTurnSequence: sequence + 2,
         updatedAt: FieldValue.serverTimestamp(),
       });
+      if (input.clientRequestId) {
+        transaction.set(
+          adminDb.collection('sessionRequestLedger').doc(`${input.sessionId}__${input.clientRequestId}`),
+          {
+            sessionId: input.sessionId,
+            requestId: input.clientRequestId,
+            turnId: turnRef.id,
+            message: input.message,
+            response: {
+              tutorData,
+              responsePlan: safeStudentResponsePlan(input.responsePlan),
+              intentData: safeIntentProjection(input.intentData),
+              turnId: turnRef.id,
+              safety: {
+                responseClass: safety.responseClass,
+                reviewRequested: safety.flagForTeacherReview,
+                reviewRecorded,
+                reviewerAvailable: input.policy.reviewerAvailable,
+              },
+              sessionState: {
+                currentHintLevel: input.policy.currentHintLevel,
+                allowedHintLevel: 0,
+                mode: input.policy.mode,
+                strictness: input.policy.strictness,
+                grade: input.policy.grade,
+                policySources: input.policy.sources,
+              },
+            },
+            createdAt: FieldValue.serverTimestamp(),
+          },
+        );
+      }
       },
     });
-  } catch (error) {
-    // Safety guidance must remain available if routine transcript persistence
-    // is degraded. The event writer has its own failure isolation above.
-    console.error('Safety turn persistence failed', error);
-  }
 
   return NextResponse.json({
     tutorData,
@@ -748,6 +864,11 @@ interface EvidenceInput {
   tutorData: TutorResponse;
   /** Model-only tags retained transiently; never returned or persisted to turns. */
   internalConceptTags: string[];
+  /** Server-only classifier/tutor context, persisted outside sessionTurns. */
+  internalLearningObjective: string | null;
+  internalTopic: string | null;
+  /** Resolved once for both tutor and transfer disclosure protection. */
+  trustedReferenceAnswer: string | null;
   transcriptTurns: TranscriptTurn[];
 }
 
@@ -807,7 +928,7 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
       } else {
         const evaluation = await evaluateAttempt({
           problem: pendingTransfer.problemMarkdown,
-          learningObjective: pendingTransfer.topic ?? input.responsePlan.learningObjective,
+          learningObjective: pendingTransfer.topic ?? input.internalLearningObjective,
           transcript,
           studentMessage: input.message,
           grade: input.policy.grade,
@@ -882,7 +1003,7 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
     } else {
       const evaluation = await evaluateAttempt({
         problem: input.policy.originalProblem,
-        learningObjective: input.responsePlan.learningObjective,
+        learningObjective: input.internalLearningObjective,
         transcript,
         studentMessage: input.message,
         grade: input.policy.grade,
@@ -916,12 +1037,13 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
     if (input.responsePlan.generateTransferProblem) {
       const generated = await generateTransferProblem({
         problem: input.policy.originalProblem,
-        // Internal classifier/topic context never joins the plan projection.
-        topic: null,
+        // Internal classifier/topic context never joins the plan projection or
+        // a readable session turn, but remains available to server-only work.
+        topic: input.internalTopic,
         grade: input.policy.grade,
         conceptTags: input.internalConceptTags,
         subject: input.policy.subject,
-        protectedOriginalAnswer: input.policy.referenceAnswer ?? null,
+        protectedOriginalAnswer: input.trustedReferenceAnswer,
         originalFinalAnswerAllowed: isFullSolutionAllowedThisTurn(input.responsePlan),
       });
 
@@ -959,7 +1081,9 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
       // The visible turn is already authoritative. A closure now merely means
       // optional follow-up evidence was not committed; it must not turn a
       // successful tutoring response into a false 409.
-      return summary;
+      // Evidence writes are no longer authoritative after completion, but the
+      // transcript exchange already committed. Fall through so the derived
+      // public snapshot catches up from that committed data.
     }
     // Evidence collection is best-effort by design. Its absence lowers coverage
     // and shows in the instrumentation-health metric, which is the honest record;

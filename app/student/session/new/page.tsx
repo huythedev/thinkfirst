@@ -86,6 +86,10 @@ export default function NewSession() {
         // follows this id to the document it wrote itself.
         ...(extraction ? { imageId: extraction.imageId } : {}),
         currentHintLevel: 0,
+        // Server-owned after creation. Explicit zeroes make the first
+        // exchange's ordering and compare-and-swap state unambiguous.
+        nextTurnSequence: 0,
+        revision: 0,
         // The rule requires the server timestamp transform, preventing a client
         // from backdating or future-dating a session to influence recency.
         startedAt: serverTimestamp(),
