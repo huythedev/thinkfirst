@@ -20,6 +20,14 @@ export async function GET(
 
     const { sessionId } = await params;
 
+    // Authorize from the session before selecting any transfer data. A transfer
+    // document is not an ownership oracle, even though its internal answer is
+    // omitted from this route's projection.
+    const session = await adminDb.collection('learningSessions').doc(sessionId).get();
+    if (!session.exists || session.data()?.studentId !== auth.uid) {
+      return NextResponse.json({ error: 'Not found.' }, { status: 404 });
+    }
+
     const snapshot = await adminDb
       .collection('transferProblems')
       .where('sessionId', '==', sessionId)
@@ -49,11 +57,9 @@ export async function GET(
 
     const pending = documents[0];
     
-    // Check if the student is asking for their own session
-    // Just to be safe, though sessionId could belong to another student.
-    if (pending.studentId !== auth.uid) {
-       return NextResponse.json({ error: 'Not found.' }, { status: 404 });
-    }
+    // Defense in depth for corrupted transfer records; session authorization is
+    // the authoritative ownership check above.
+    if (pending.studentId !== auth.uid) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
     return NextResponse.json({
       transferProblem: {

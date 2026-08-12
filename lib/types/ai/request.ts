@@ -45,6 +45,8 @@ export const chatRequestSchema = z
   .object({
     message: z.string().min(1).max(5000),
     sessionId: z.string().min(1).max(200),
+    /** Stable across a browser retry; used only as an idempotency key. */
+    clientRequestId: z.string().uuid().optional(),
   })
   .strict();
 

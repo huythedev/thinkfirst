@@ -71,7 +71,7 @@ async function seedStudentEvidence(options: {
     });
 
   await adminDb
-    .collection('independenceSnapshots')
+    .collection('independenceSnapshotsInternal')
     .doc(`${sessionId}__scoring-v2`)
     .set({
       studentId: options.studentId,
@@ -102,7 +102,7 @@ async function seedStudentEvidence(options: {
     });
 
   await adminDb
-    .collection('independenceSnapshots')
+    .collection('independenceSnapshotsInternal')
     .doc(`${options.studentId}__profile__scoring-v2`)
     .set({
       studentId: options.studentId,

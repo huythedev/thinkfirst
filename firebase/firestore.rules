@@ -350,8 +350,9 @@ service cloud.firestore {
 
     // studentAttempts
     //
-    // Reads are owner-scoped. Writes are refused outright, including the student's
-    // own, which is a change from the original rule.
+    // Raw evaluator output is server-only. It contains model prose and trusted
+    // extracted/reference material, so owner-scoping is not a disclosure
+    // boundary. Student status is exposed only through safe score projections.
     //
     // These documents used to be plain records of what the student submitted. They
     // now carry the evaluator's rubric judgments -- `reasoningRubric`,
@@ -362,10 +363,14 @@ service cloud.firestore {
     // `strictness` closed in phase 4. So the tutoring endpoint writes them with
     // Admin credentials, which bypass this rule.
     match /studentAttempts/{attemptId} {
-      allow get, list: if isSignedIn() && (
-        resource.data.studentId == request.auth.uid ||
-        isAdmin());
+      allow get, list: if isAdmin();
       allow write: if false;
+    }
+
+    // Full scoring evidence, including raw model-derived metrics and trusted
+    // transfer answers, is never a client document.
+    match /independenceSnapshotsInternal/{snapshotId} {
+      allow read, write: if isAdmin();
     }
 
     // transferProblems

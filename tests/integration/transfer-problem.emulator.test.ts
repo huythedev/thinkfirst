@@ -20,6 +20,10 @@ vi.mock('@/lib/firebase/verify-request', () => ({
 
 beforeAll(async () => {
   adminDb = (await import('@/lib/firebase/admin')).adminDb;
+  await adminDb.collection('learningSessions').doc(SESSION).set({
+    studentId: STUDENT,
+    status: 'active',
+  });
   
   // Seed a pending transfer problem
   await adminDb.collection('transferProblems').doc('transfer-1').set({

@@ -132,7 +132,7 @@ export async function loadEvidenceForStudents(studentIds: string[]): Promise<Loa
       Promise.all(
         batches.map((batch) =>
           adminDb
-            .collection('independenceSnapshots')
+            .collection('independenceSnapshotsInternal')
             .where('studentId', 'in', batch)
             .where('scoringVersion', '==', SCORING_VERSION)
             .get(),

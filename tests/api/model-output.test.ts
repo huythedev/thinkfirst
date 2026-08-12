@@ -7,6 +7,11 @@ import {
   parseTutorResponse,
   studentVisibleTutorText,
 } from '@/lib/types/ai/model-output';
+import {
+  safeIntentProjection,
+  safeStudentResponsePlan,
+  studentVisibleTransferText,
+} from '@/lib/ai/output-boundaries';
 import type { TutorResponse, TutorResponsePlan } from '@/lib/types/ai/schema';
 
 /**
@@ -160,6 +165,33 @@ describe('parseIntentAnalysis', () => {
     expect(SAFE_FALLBACK_INTENT.attemptQuality).toBe('none');
     expect(SAFE_FALLBACK_INTENT.ambiguityLevel).toBe('high');
     expect(SAFE_FALLBACK_INTENT.confidence).toBe(0);
+  });
+});
+
+describe('model-output boundary projections', () => {
+  it('never projects classifier prose to a student-readable intent record or plan', () => {
+    const adversarial = {
+      ...validIntent,
+      topic: 'x = 4',
+      problemStatement: 'The answer is x = 4',
+      missingInformation: ['Use x = 4'],
+    };
+    const projection = safeIntentProjection(adversarial as import('@/lib/types/ai/schema').IntentAnalysis);
+    const planProjection = safeStudentResponsePlan(plan({ learningObjective: adversarial.topic }));
+
+    expect(JSON.stringify(projection)).not.toContain('x = 4');
+    expect(projection).not.toHaveProperty('topic');
+    expect(projection).not.toHaveProperty('problemStatement');
+    expect(projection).not.toHaveProperty('missingInformation');
+    expect(planProjection.learningObjective).toBeNull();
+  });
+
+  it('makes every visible transfer field part of the canonical disclosure text', () => {
+    expect(studentVisibleTransferText({
+      problemMarkdown: 'Solve 3y = 12.',
+      topic: 'Answer y = 4',
+      expectedConcepts: ['Use y = 4'],
+    })).toContain('y = 4');
   });
 });
 

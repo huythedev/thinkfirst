@@ -14,6 +14,10 @@ import {
   parseTutorResponse,
   studentVisibleTutorText,
 } from '@/lib/types/ai/model-output';
+import {
+  safeIntentProjection,
+  safeStudentResponsePlan,
+} from '@/lib/ai/output-boundaries';
 import { verifyRequest } from '@/lib/firebase/verify-request';
 import { adminDb } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -33,7 +37,12 @@ import {
 import { persistSessionEvidence } from '@/lib/scoring/server';
 import { composeSafetyResponse, messageWithReviewStatus } from '@/lib/safety/response';
 import { recordSafetyEvent } from '@/lib/safety/safety-event';
-import { SessionClosedDuringRequestError, runWhileSessionActive } from '@/lib/session/active-session';
+import {
+  SessionClosedDuringRequestError,
+  SessionRevisionConflictError,
+  commitForSessionRevision,
+  runWhileSessionActive,
+} from '@/lib/session/active-session';
 import {
   RATE_LIMITS,
   checkRateLimit,
@@ -131,7 +140,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { message, sessionId } = parsed.data;
+    const { message, sessionId, clientRequestId } = parsed.data;
     failedSessionId = sessionId;
 
     // Every policy input is read server-side. The request body carries only the
@@ -151,6 +160,21 @@ export async function POST(req: NextRequest) {
     }
 
     const policy = resolution.inputs;
+
+    if (clientRequestId) {
+      const prior = await adminDb
+        .collection('sessionRequestLedger')
+        .doc(`${sessionId}__${clientRequestId}`)
+        .get();
+      const priorResponse = prior.data()?.response;
+      if (prior.exists && priorResponse && typeof priorResponse === 'object') {
+        return NextResponse.json({
+          ...(priorResponse as Record<string, unknown>),
+          evidence: { attemptEvaluated: false, transferIssued: false, score: null, coverage: 0, suppressed: true },
+          idempotentReplay: true,
+        });
+      }
+    }
 
     // The transcript is a policy input too: the classifier derives attempt
     // quality from it, and attempt quality gates disclosure. So it is read from
@@ -213,6 +237,9 @@ export async function POST(req: NextRequest) {
       // tested as a pure function, and unreachable from any real request.
       extractionConfidence: policy.extractionConfirmed ? undefined : policy.extractionConfidence,
     });
+    // Plans cross the student boundary in both response JSON and sessionTurns.
+    // Do not let any internal classifier prose hitch a ride with policy data.
+    const studentResponsePlan = safeStudentResponsePlan(responsePlan);
 
     // R8, enforced rather than requested. The policy engine has always returned
     // `safety_redirect` here, but until this session the route carried on and
@@ -232,11 +259,12 @@ export async function POST(req: NextRequest) {
         language: policy.language,
         confidence: intentData.confidence,
         intentData,
-        responsePlan,
-        sequence: transcript.length + 1,
+        responsePlan: studentResponsePlan,
+        sequence: 0,
         classifierModel,
         latencyMs: Date.now() - startedAt,
         policy,
+        expectedRevision: policy.revision ?? 0,
       });
     }
 
@@ -366,16 +394,29 @@ Action: ${responsePlan.action}`;
           requiresVerification: false,
           generateTransferProblem: false,
         }
-      : responsePlan;
+      : studentResponsePlan;
     const latencyMs = Date.now() - startedAt;
 
     // The assistant turn carries the policy decision, so the server writes it.
     // Section 41.1 lists `rationaleCode`, `mayRevealFinalAnswer` and
     // `allowedHintLevel` among the values never trusted from a client, and the
     // rules now refuse a client-authored assistant turn.
-    const nextSequence = transcript.length + 1;
     const turnRef = adminDb.collection('sessionTurns').doc();
 
+    const committedResponse = {
+      tutorData,
+      responsePlan: studentResponsePlan,
+      intentData: safeIntentProjection(intentData),
+      turnId: turnRef.id,
+      sessionState: {
+        currentHintLevel: persistedHintLevel,
+        allowedHintLevel: deliveredResponsePlan.allowedHintLevel,
+        mode: policy.mode,
+        strictness: policy.strictness,
+        grade: policy.grade,
+        policySources: policy.sources,
+      },
+    };
     await commitActiveTutorTurn({
       sessionId,
       turnRef,
@@ -383,13 +424,14 @@ Action: ${responsePlan.action}`;
         id: turnRef.id,
         sessionId,
         studentId: auth.uid,
-        sequence: nextSequence,
+        // Assigned atomically from session state at commit time.
+        sequence: 0,
         actor: 'assistant',
         content: tutorData.messageMarkdown,
         createdAt: FieldValue.serverTimestamp(),
-        intentAnalysis: intentData,
+        intentAnalysis: safeIntentProjection(intentData),
         responsePlan: deliveredResponsePlan,
-        originalResponsePlan: responsePlan,
+        originalResponsePlan: studentResponsePlan,
         tutorMetadata: {
           hintLevel: tutorData.hintLevel,
           finalAnswerIncluded: tutorData.finalAnswerIncluded,
@@ -419,6 +461,9 @@ Action: ${responsePlan.action}`;
         },
       },
       persistedHintLevel,
+      expectedRevision: policy.revision ?? 0,
+      clientRequestId,
+      committedResponse,
     });
 
     // Learning evidence. Everything below is server-authored: §56.4 forbids the
@@ -441,19 +486,8 @@ Action: ${responsePlan.action}`;
     });
 
     return NextResponse.json({
-      tutorData,
-      responsePlan,
-      intentData,
-      turnId: turnRef.id,
+      ...committedResponse,
       evidence,
-      sessionState: {
-        currentHintLevel: persistedHintLevel,
-        allowedHintLevel: deliveredResponsePlan.allowedHintLevel,
-        mode: policy.mode,
-        strictness: policy.strictness,
-        grade: policy.grade,
-        policySources: policy.sources,
-      },
     });
 
   } catch (error: any) {
@@ -462,6 +496,13 @@ Action: ${responsePlan.action}`;
     if (error instanceof SessionClosedDuringRequestError) {
       return NextResponse.json(
         { error: 'This session was completed before the tutoring response could be saved.' },
+        { status: 409 },
+      );
+    }
+
+    if (error instanceof SessionRevisionConflictError) {
+      return NextResponse.json(
+        { error: 'This session changed while the response was being prepared. Please send your next message again.' },
         { status: 409 },
       );
     }
@@ -488,21 +529,44 @@ async function commitActiveTutorTurn(input: {
   turnRef: FirebaseFirestore.DocumentReference;
   turn: Record<string, unknown>;
   persistedHintLevel: number;
+  expectedRevision: number;
+  clientRequestId?: string;
+  committedResponse?: Record<string, unknown>;
 }): Promise<void> {
-  await runWhileSessionActive(input.sessionId, (transaction) => {
-    transaction.set(input.turnRef, input.turn);
-    const sessionRef = adminDb.collection('learningSessions').doc(input.sessionId);
+  await commitForSessionRevision({
+    sessionId: input.sessionId,
+    expectedRevision: input.expectedRevision,
+    write: (transaction, sessionRef, _nextRevision, current) => {
+    const sequence = typeof current.nextTurnSequence === 'number'
+      ? Math.max(0, Math.trunc(current.nextTurnSequence))
+      : 0;
+    transaction.set(input.turnRef, { ...input.turn, sequence });
     transaction.update(sessionRef, {
       currentHintLevel: input.persistedHintLevel,
-      updatedAt: FieldValue.serverTimestamp(),
+      nextTurnSequence: sequence + 1,
     });
+    if (input.clientRequestId && input.committedResponse) {
+      transaction.set(
+        adminDb.collection('sessionRequestLedger').doc(`${input.sessionId}__${input.clientRequestId}`),
+        {
+          sessionId: input.sessionId,
+          requestId: input.clientRequestId,
+          turnId: input.turnRef.id,
+          response: input.committedResponse,
+          createdAt: FieldValue.serverTimestamp(),
+        },
+      );
+    }
+    },
   });
 }
 
 async function markSessionSystemError(sessionId: string): Promise<void> {
-  await adminDb.collection('learningSessions').doc(sessionId).update({
-    endedWithSystemError: true,
-    updatedAt: FieldValue.serverTimestamp(),
+  await runWhileSessionActive(sessionId, (transaction) => {
+    transaction.update(adminDb.collection('learningSessions').doc(sessionId), {
+      endedWithSystemError: true,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
   });
 }
 
@@ -518,6 +582,7 @@ interface SafetyTurnInput {
   classifierModel: string;
   latencyMs: number;
   policy: ResolvedPolicyInputs;
+  expectedRevision: number;
 }
 
 /**
@@ -583,16 +648,26 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
   };
 
   try {
-    await turnRef.set({
+    await commitForSessionRevision({
+      sessionId: input.sessionId,
+      expectedRevision: input.expectedRevision,
+      write: (transaction, sessionRef, _nextRevision, current) => {
+      // Safety guidance is always returned, but a closed educational transcript
+      // is never reopened by a late classifier result. `nextTurnSequence` is
+      // server-owned and avoids transcript.length races.
+      const sequence = typeof current.nextTurnSequence === 'number'
+        ? Math.max(0, Math.trunc(current.nextTurnSequence))
+        : input.sequence;
+      transaction.set(turnRef, {
       id: turnRef.id,
       sessionId: input.sessionId,
       studentId: input.studentId,
-      sequence: input.sequence,
+      sequence,
       actor: 'assistant',
       content: tutorData.messageMarkdown,
       createdAt: FieldValue.serverTimestamp(),
-      intentAnalysis: input.intentData,
-      responsePlan: input.responsePlan,
+      intentAnalysis: safeIntentProjection(input.intentData),
+      responsePlan: safeStudentResponsePlan(input.responsePlan),
       tutorMetadata: {
       hintLevel: 0,
       finalAnswerIncluded: false,
@@ -620,12 +695,13 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
       },
       // §56.4: this turn is not learning evidence and must not be scored as any.
       excludedFromScoring: true,
+      });
+      transaction.update(sessionRef, {
+        nextTurnSequence: sequence + 1,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      },
     });
-
-    await adminDb
-      .collection('learningSessions')
-      .doc(input.sessionId)
-      .update({ updatedAt: FieldValue.serverTimestamp() });
   } catch (error) {
     // Safety guidance must remain available if routine transcript persistence
     // is degraded. The event writer has its own failure isolation above.
@@ -634,8 +710,8 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
 
   return NextResponse.json({
     tutorData,
-    responsePlan: input.responsePlan,
-    intentData: input.intentData,
+    responsePlan: safeStudentResponsePlan(input.responsePlan),
+    intentData: safeIntentProjection(input.intentData),
     turnId: turnRef.id,
     safety: {
       responseClass: safety.responseClass,
@@ -840,9 +916,13 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
     if (input.responsePlan.generateTransferProblem) {
       const generated = await generateTransferProblem({
         problem: input.policy.originalProblem,
-        topic: input.responsePlan.learningObjective,
+        // Internal classifier/topic context never joins the plan projection.
+        topic: null,
         grade: input.policy.grade,
         conceptTags: input.internalConceptTags,
+        subject: input.policy.subject,
+        protectedOriginalAnswer: input.policy.referenceAnswer ?? null,
+        originalFinalAnswerAllowed: isFullSolutionAllowedThisTurn(input.responsePlan),
       });
 
       if (generated) {
@@ -875,7 +955,12 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
       }
     }
   } catch (error) {
-    if (error instanceof SessionClosedDuringRequestError) throw error;
+    if (error instanceof SessionClosedDuringRequestError) {
+      // The visible turn is already authoritative. A closure now merely means
+      // optional follow-up evidence was not committed; it must not turn a
+      // successful tutoring response into a false 409.
+      return summary;
+    }
     // Evidence collection is best-effort by design. Its absence lowers coverage
     // and shows in the instrumentation-health metric, which is the honest record;
     // failing the turn would punish the student for a server-side fault.
@@ -887,13 +972,15 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
 
   try {
     const persisted = await persistSessionEvidence(input.studentId, input.sessionId, {
-      requireActiveSession: true,
+      // Snapshots are deterministic derived projections of already committed
+      // evidence. They are allowed to catch up after completion and never alter
+      // the authoritative transcript/hint state.
+      requireActiveSession: false,
     });
     summary.score = persisted.sessionScore.rawScore;
     summary.coverage = persisted.sessionScore.coverage;
     summary.suppressed = persisted.sessionScore.displaySuppressed;
   } catch (error) {
-    if (error instanceof SessionClosedDuringRequestError) throw error;
     console.error(
       'Failed to persist independence snapshot:',
       error instanceof Error ? error.message : 'unknown error',

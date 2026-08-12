@@ -55,6 +55,8 @@ export interface ResolvedPolicyInputs {
   mode: PolicyMode;
   strictness: PolicyStrictness;
   currentHintLevel: number;
+  /** Optimistic-concurrency token for an in-flight tutoring request. */
+  revision: number;
   allowFullSolutions?: boolean;
   requireTransferProblem?: boolean;
   /**
@@ -96,6 +98,11 @@ function isMode(value: unknown): value is PolicyMode {
 function clampHintLevel(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
   return Math.min(Math.max(Math.trunc(value), 0), MAX_HINT_LEVEL);
+}
+
+function clampRevision(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.trunc(value));
 }
 
 function clampGrade(value: unknown): number | null {
@@ -221,6 +228,7 @@ export function resolvePolicyFromDocuments(
     // client-writable set. Clamping here defends against data corruption, not
     // against the client.
     currentHintLevel: clampHintLevel(session.currentHintLevel),
+    revision: clampRevision(session.revision),
     allowFullSolutions:
       hasAssignment && typeof assignment.allowFullSolutions === 'boolean'
         ? assignment.allowFullSolutions

@@ -111,7 +111,10 @@ export function generateResponsePlan(
   const base = {
     tone: toneForGrade(grade),
     maxResponseWords: wordsForGrade(grade),
-    learningObjective: intentData.topic,
+    // Classifier topic is untrusted model prose. A response plan is persisted
+    // and returned to the student, so it must not carry that prose across the
+    // boundary. Internal callers retain `intentData.topic` in memory only.
+    learningObjective: null,
     policyVersion: POLICY_VERSION,
   };
 

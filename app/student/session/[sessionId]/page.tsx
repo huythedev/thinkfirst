@@ -123,7 +123,7 @@ export default function LearningWorkspace() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message: userMsg, sessionId }),
+        body: JSON.stringify({ message: userMsg, sessionId, clientRequestId: crypto.randomUUID() }),
       });
 
       if (!res.ok) {

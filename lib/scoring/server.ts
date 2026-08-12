@@ -1,6 +1,10 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import { runWhileSessionActive } from '@/lib/session/active-session';
+import {
+  internalScoreEvidence,
+  safeStudentScoreProjection,
+} from '@/lib/ai/output-boundaries';
 import { computeIndependenceProfile, scoreSession } from '@/lib/scoring/independence';
 import {
   RawAttempt,
@@ -215,13 +219,6 @@ function serializeComponentDetail(components: ComponentScore[]): ComponentScore[
  * ISO strings because Firestore rejects `undefined` and nested `Date` handling
  * differs between the Admin and client SDKs.
  */
-function serializeMetrics(metrics: SessionMetrics): Record<string, unknown> {
-  return {
-    ...metrics,
-    occurredAt: metrics.occurredAt ? metrics.occurredAt.toISOString() : null,
-  };
-}
-
 export interface PersistResult {
   sessionScore: SessionScore;
   profile: IndependenceProfile;
@@ -275,7 +272,8 @@ export async function persistSessionEvidence(
   const sessionSnapshotId = `${sessionId}__${SCORING_VERSION}`;
   const profileSnapshotId = `${studentId}__profile__${SCORING_VERSION}`;
 
-  const sessionSnapshot = {
+  const generatedAt = FieldValue.serverTimestamp();
+  const sessionSnapshot = safeStudentScoreProjection({
         id: sessionSnapshotId,
         studentId,
         sessionId,
@@ -285,18 +283,18 @@ export async function persistSessionEvidence(
         suppressed: sessionScore.displaySuppressed,
         components: componentsField(sessionScore.components),
         componentDetail: serializeComponentDetail(sessionScore.components),
-        rawMetrics: metrics ? serializeMetrics(metrics) : null,
         excludedForSystemError: sessionScore.excludedForSystemError,
         profileBaselineScore,
         // Unlike `generatedAt`, this is immutable across recomputation. It
         // identifies the first contribution regardless of which session gets
         // recomputed first, so A→B→A and B→A→B replay from one anchor.
-        profileBaselineCapturedAt:
-          profileBaseline.capturedAt ?? FieldValue.serverTimestamp(),
         scoringVersion: SCORING_VERSION,
-    generatedAt: FieldValue.serverTimestamp(),
-  };
-  const profileSnapshot = {
+        generatedAt,
+        extra: {
+          profileBaselineCapturedAt: profileBaseline.capturedAt ?? FieldValue.serverTimestamp(),
+        },
+  });
+  const profileSnapshot = safeStudentScoreProjection({
         id: profileSnapshotId,
         studentId,
         sessionId: null,
@@ -304,20 +302,29 @@ export async function persistSessionEvidence(
         totalScore: profile.score,
         coverage: profile.evidenceWeight,
         suppressed: profile.suppressed,
-        suppressionReason: profile.suppressionReason,
-        band: profile.band?.id ?? null,
-        trend: profile.trend,
-        evidenceWeight: profile.evidenceWeight,
-        sessionsScored: profile.sessionsScored,
-        sessionsConsidered: profile.sessionsConsidered,
-        sessionsExcluded: profile.sessionsExcluded,
-        instrumentationUnavailableRate: profile.instrumentationUnavailableRate,
-        suggestion: profile.suggestion,
         components: componentsField(profile.components),
         componentDetail: serializeComponentDetail(profile.components),
-        rawMetrics: null,
         scoringVersion: SCORING_VERSION,
-    generatedAt: FieldValue.serverTimestamp(),
+        generatedAt,
+        extra: {
+          suppressionReason: profile.suppressionReason,
+          band: profile.band?.id ?? null,
+          trend: profile.trend,
+          evidenceWeight: profile.evidenceWeight,
+          sessionsScored: profile.sessionsScored,
+          sessionsConsidered: profile.sessionsConsidered,
+          sessionsExcluded: profile.sessionsExcluded,
+          instrumentationUnavailableRate: profile.instrumentationUnavailableRate,
+          suggestion: profile.suggestion,
+        },
+  });
+  const sessionInternalSnapshot = {
+    ...sessionSnapshot,
+    rawMetrics: internalScoreEvidence(metrics),
+  };
+  const profileInternalSnapshot = {
+    ...profileSnapshot,
+    rawMetrics: null,
   };
   const masteryRecords = buildMasteryRecords(studentId, allMetrics);
 
@@ -339,6 +346,14 @@ export async function persistSessionEvidence(
     transaction.set(
       adminDb.collection('independenceSnapshots').doc(profileSnapshotId),
       profileSnapshot,
+    );
+    transaction.set(
+      adminDb.collection('independenceSnapshotsInternal').doc(sessionSnapshotId),
+      sessionInternalSnapshot,
+    );
+    transaction.set(
+      adminDb.collection('independenceSnapshotsInternal').doc(profileSnapshotId),
+      profileInternalSnapshot,
     );
     for (const record of masteryRecords) {
       transaction.set(record.ref, record.data, { merge: true });

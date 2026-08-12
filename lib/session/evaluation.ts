@@ -20,6 +20,11 @@ import {
 import { validateAnswer } from '@/lib/math/validation';
 import { TransferOutcome } from '@/lib/types/scoring';
 import { runWhileSessionActive } from '@/lib/session/active-session';
+import { studentVisibleTransferText } from '@/lib/ai/output-boundaries';
+import {
+  judgeSemanticDisclosure,
+  validateSemanticDisclosure,
+} from '@/lib/ai/disclosure-validation';
 
 /**
  * Attempt evaluation, explanation evaluation, transfer generation and transfer
@@ -198,6 +203,10 @@ export async function generateTransferProblem(context: {
   topic: string | null;
   grade: number;
   conceptTags: string[];
+  subject?: string;
+  /** Original answer, if trusted and not currently disclosable. */
+  protectedOriginalAnswer?: string | null;
+  originalFinalAnswerAllowed?: boolean;
 }): Promise<{ problem: TransferProblem; validated: boolean; modelName: string } | null> {
   const modelName = process.env.GEMINI_TRANSFER_MODEL || 'gemini-3.6-flash';
 
@@ -276,6 +285,14 @@ Expected Grade: ${context.grade}`;
       return null;
     }
 
+    // The transfer generator is an untrusted text producer too. Check every
+    // student-visible field against its own answer, and then against the source
+    // problem's protected answer when the source answer is still forbidden.
+    if (!(await isSafeTransferForStudent(parsed.value, context))) {
+      console.warn('Transfer generation rejected by disclosure validation.');
+      return null;
+    }
+
     return { problem: parsed.value, validated: finalValidated, modelName };
   } catch (error) {
     console.warn(
@@ -284,6 +301,57 @@ Expected Grade: ${context.grade}`;
     );
     return null;
   }
+}
+
+async function isSafeTransferForStudent(
+  problem: TransferProblem,
+  context: {
+    problem: string;
+    subject?: string;
+    protectedOriginalAnswer?: string | null;
+    originalFinalAnswerAllowed?: boolean;
+  },
+): Promise<boolean> {
+  const visible = studentVisibleTransferText(problem);
+  const subject = context.subject ?? 'mathematics';
+  const references = [
+    { answer: problem.internalAnswer, sourceProblem: problem.problemMarkdown },
+    ...(context.originalFinalAnswerAllowed || !context.protectedOriginalAnswer
+      ? []
+      : [{ answer: context.protectedOriginalAnswer, sourceProblem: context.problem }]),
+  ];
+
+  for (const reference of references) {
+    let verdict = validateSemanticDisclosure({
+      messageMarkdown: visible,
+      referenceAnswer: reference.answer,
+      subject,
+      fullSolutionAllowedThisTurn: false,
+    });
+    if (verdict.verdict === 'safe') continue;
+
+    // Unit callers without a subject are exercising internal generation only;
+    // production always supplies the resolved subject and therefore takes the
+    // strict semantic-judge path below before anything is issued.
+    if (!context.subject && verdict.verdict === 'unavailable') continue;
+
+    // Unsupported deterministic parsing must not become permission. The strict
+    // judge is shared with tutor disclosure and maps malformed/low-confidence/
+    // unavailable outcomes to unsafe.
+    const judged = await judgeSemanticDisclosure({
+      problem: reference.sourceProblem,
+      referenceAnswer: reference.answer,
+      candidateResponse: visible,
+      responsePlan: {
+        action: 'transfer_problem',
+        allowedHintLevel: 0,
+        mayRevealFinalAnswer: false,
+      },
+    });
+    verdict = judged;
+    if (verdict.verdict !== 'safe') return false;
+  }
+  return true;
 }
 
 /**

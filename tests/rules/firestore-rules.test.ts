@@ -1160,9 +1160,9 @@ describe('learning evidence is server-authored', () => {
     );
   });
 
-  it('a student can still read their own attempts, but not another student attempts', async () => {
+  it('a student cannot read raw evaluator attempts, including their own', async () => {
     await seed();
-    await assertSucceeds(getDoc(doc(asStudentA(), 'studentAttempts', 'attempt-a')));
+    await assertFails(getDoc(doc(asStudentA(), 'studentAttempts', 'attempt-a')));
     await assertFails(getDoc(doc(asStudentB(), 'studentAttempts', 'attempt-a')));
   });
 
