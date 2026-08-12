@@ -184,7 +184,7 @@ describe('POST /api/session/chat', () => {
     modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
     modelSpy.mockResolvedValueOnce({
       text: JSON.stringify({
-        messageMarkdown: 'A complex semantic hint',
+        messageMarkdown: 'A complex semantic hint: 2x + 1.',
         responseType: 'hint',
         hintLevel: 1,
         finalAnswerIncluded: false,
@@ -196,7 +196,7 @@ describe('POST /api/session/chat', () => {
     const res = await POST(validRequest());
     const data = await res.json();
 
-    expect(data.tutorData.messageMarkdown).toContain('I started to answer with more than you should see at this point');
+    expect(data.tutorData.messageMarkdown).toContain('Let’s start with one very small step');
     expect(data.tutorData.hintLevel).toBe(0);
     expect(data.sessionState.currentHintLevel).toBe(1);
     expect(modelSpy).toHaveBeenCalledTimes(3);
@@ -238,11 +238,11 @@ describe('POST /api/session/chat', () => {
     const res = await POST(validRequest());
     const data = await res.json();
 
-    expect(data.tutorData.messageMarkdown).toContain('I started to answer with more than you should see at this point');
+    expect(data.tutorData.messageMarkdown).toContain('I’ll keep the answer back');
     expect(modelSpy).toHaveBeenCalledTimes(2);
   });
 
-  test('no trusted reference with harmless but unverifiable prose uses the deterministic fallback', async () => {
+  test('a harmless conceptual hint with a deterministic reference is delivered', async () => {
     mockPolicy.referenceAnswer = undefined;
     modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
     modelSpy.mockResolvedValueOnce({
@@ -258,20 +258,17 @@ describe('POST /api/session/chat', () => {
     const res = await POST(validRequest());
     const data = await res.json();
 
-    expect(data.tutorData.messageMarkdown).toContain('I started to answer with more than you should see at this point');
-    expect(data.tutorData.messageMarkdown).not.toContain('Try subtracting three');
-    expect(data.tutorData.hintLevel).toBe(0);
+    expect(data.tutorData.messageMarkdown).toContain('Try subtracting three');
+    expect(data.tutorData.hintLevel).toBe(1);
     expect(data.sessionState.currentHintLevel).toBe(1);
-    // A supported standalone linear equation derives a server-side reference,
-    // then the semantic judge fail-closes when it cannot clear the prose.
-    expect(modelSpy).toHaveBeenCalledTimes(3);
+    expect(modelSpy).toHaveBeenCalledTimes(2);
   });
 
   test('B. semantic judge leak blocks', async () => {
     modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
     modelSpy.mockResolvedValueOnce({
       text: JSON.stringify({
-        messageMarkdown: 'A complex semantic hint', // Not deterministic match
+        messageMarkdown: 'A complex semantic hint: 2x + 1.', // Not deterministic match
         responseType: 'hint',
         hintLevel: 1,
         finalAnswerIncluded: false,
@@ -289,7 +286,7 @@ describe('POST /api/session/chat', () => {
     const res = await POST(validRequest());
     const data = await res.json();
     
-    expect(data.tutorData.messageMarkdown).toContain('I started to answer with more than you should see at this point');
+    expect(data.tutorData.messageMarkdown).toContain('I’ll keep the answer back');
     expect(modelSpy).toHaveBeenCalledTimes(3);
   });
 
@@ -297,7 +294,7 @@ describe('POST /api/session/chat', () => {
     modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
     modelSpy.mockResolvedValueOnce({
       text: JSON.stringify({
-        messageMarkdown: 'A complex semantic hint',
+        messageMarkdown: 'A complex semantic hint: 2x + 1.',
         responseType: 'hint',
         hintLevel: 1,
         finalAnswerIncluded: false,
@@ -315,7 +312,7 @@ describe('POST /api/session/chat', () => {
     const res = await POST(validRequest());
     const data = await res.json();
     
-    expect(data.tutorData.messageMarkdown).toContain('I started to answer with more than you should see at this point');
+    expect(data.tutorData.messageMarkdown).toContain('Let’s start with one very small step');
     expect(modelSpy).toHaveBeenCalledTimes(3);
   });
 
@@ -323,7 +320,7 @@ describe('POST /api/session/chat', () => {
     modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
     modelSpy.mockResolvedValueOnce({
       text: JSON.stringify({
-        messageMarkdown: 'A complex semantic hint',
+        messageMarkdown: 'A complex semantic hint: 2x + 1.',
         responseType: 'hint',
         hintLevel: 1,
         finalAnswerIncluded: false,
@@ -335,7 +332,7 @@ describe('POST /api/session/chat', () => {
     const res = await POST(validRequest());
     const data = await res.json();
     
-    expect(data.tutorData.messageMarkdown).toContain('I started to answer with more than you should see at this point');
+    expect(data.tutorData.messageMarkdown).toContain('Let’s start with one very small step');
     expect(modelSpy).toHaveBeenCalledTimes(3);
   });
 
@@ -343,7 +340,7 @@ describe('POST /api/session/chat', () => {
     modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
     modelSpy.mockResolvedValueOnce({
       text: JSON.stringify({
-        messageMarkdown: 'A complex semantic hint',
+        messageMarkdown: 'A complex semantic hint: 2x + 1.',
         responseType: 'hint',
         hintLevel: 1,
         finalAnswerIncluded: false,
@@ -362,7 +359,7 @@ describe('POST /api/session/chat', () => {
     const res = await promise;
     const data = await res.json();
     
-    expect(data.tutorData.messageMarkdown).toContain('I started to answer with more than you should see at this point');
+    expect(data.tutorData.messageMarkdown).toContain('Let’s start with one very small step');
     expect(modelSpy).toHaveBeenCalledTimes(3);
   });
 
@@ -370,7 +367,7 @@ describe('POST /api/session/chat', () => {
     modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
     modelSpy.mockResolvedValueOnce({
       text: JSON.stringify({
-        messageMarkdown: 'A complex semantic hint',
+        messageMarkdown: 'A complex semantic hint: 2x + 1.',
         responseType: 'hint',
         hintLevel: 1,
         finalAnswerIncluded: false,
@@ -388,7 +385,7 @@ describe('POST /api/session/chat', () => {
     const res = await POST(validRequest());
     const data = await res.json();
     
-    expect(data.tutorData.messageMarkdown).toContain('I started to answer with more than you should see at this point');
+    expect(data.tutorData.messageMarkdown).toContain('Let’s start with one very small step');
     expect(modelSpy).toHaveBeenCalledTimes(3);
   });
 
@@ -396,7 +393,7 @@ describe('POST /api/session/chat', () => {
     modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
     modelSpy.mockResolvedValueOnce({
       text: JSON.stringify({
-        messageMarkdown: 'A complex semantic hint',
+        messageMarkdown: 'A complex semantic hint: 2x + 1.',
         responseType: 'hint',
         hintLevel: 1,
         finalAnswerIncluded: false,
@@ -415,7 +412,7 @@ describe('POST /api/session/chat', () => {
     const res = await POST(validRequest());
     const data = await res.json();
     
-    expect(data.tutorData.messageMarkdown).toContain('I started to answer with more than you should see at this point');
+    expect(data.tutorData.messageMarkdown).toContain('Let’s start with one very small step');
     expect(modelSpy).toHaveBeenCalledTimes(3);
   });
 
@@ -423,7 +420,7 @@ describe('POST /api/session/chat', () => {
     modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
     modelSpy.mockResolvedValueOnce({
       text: JSON.stringify({
-        messageMarkdown: 'A complex semantic hint',
+        messageMarkdown: 'A complex semantic hint: 2x + 1.',
         responseType: 'hint',
         hintLevel: 1,
         finalAnswerIncluded: false,
@@ -441,7 +438,7 @@ describe('POST /api/session/chat', () => {
     const res = await POST(validRequest());
     const data = await res.json();
     
-    expect(data.tutorData.messageMarkdown).toContain('I started to answer with more than you should see at this point');
+    expect(data.tutorData.messageMarkdown).toContain('Let’s start with one very small step');
     expect(modelSpy).toHaveBeenCalledTimes(3);
   });
 
@@ -449,7 +446,7 @@ describe('POST /api/session/chat', () => {
     modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
     modelSpy.mockResolvedValueOnce({
       text: JSON.stringify({
-        messageMarkdown: 'A complex semantic hint that is completely safe.',
+        messageMarkdown: 'A complex semantic hint: 2x + 1.',
         responseType: 'hint',
         hintLevel: 1,
         finalAnswerIncluded: false,
@@ -467,13 +464,75 @@ describe('POST /api/session/chat', () => {
     const res = await POST(validRequest());
     const data = await res.json();
     
-    expect(data.tutorData.messageMarkdown).toBe('A complex semantic hint that is completely safe.');
+    expect(data.tutorData.messageMarkdown).toBe('A complex semantic hint: 2x + 1.');
     expect(modelSpy).toHaveBeenCalledTimes(3);
     
     // Check judge receives trusted reference answer
     const judgeCall = modelSpy.mock.calls[2][0];
     const judgePrompt = judgeCall.contents[0].parts[0].text;
     expect(judgePrompt).toContain('Reference Answer: x = 5');
+  });
+
+  test.each([
+    'Em nên làm thế nào',
+    'Em không biết nên bắt đầu từ đâu',
+    'Em đang bị bí.',
+  ])('quadratic reproduction delivers a useful Vietnamese hint for: %s', async (message) => {
+    mockPolicy = {
+      ...mockPolicy,
+      originalProblem: 'x^2 - 6x + 7 = 0',
+      referenceAnswer: undefined,
+      language: 'vi',
+      mode: 'practice',
+      strictness: 'balanced',
+      currentHintLevel: 0,
+    };
+    modelSpy.mockResolvedValueOnce({ text: JSON.stringify({ ...validClassifierOutput, detectedLanguage: 'vi' }) });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({
+        messageMarkdown: 'Thử xác định a, b và c trước nhé.',
+        responseType: 'question', hintLevel: 0, finalAnswerIncluded: false, internalConceptTags: [],
+      }),
+    });
+
+    const req = new NextRequest('http://localhost/api/session/chat', {
+      method: 'POST', body: JSON.stringify({ sessionId: 'session1', message }),
+    });
+    const response = await POST(req);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.tutorData.messageMarkdown).toContain('xác định a, b và c');
+    expect(data.tutorData.messageMarkdown).not.toContain('3 + sqrt(2)');
+    expect(data.tutorData.messageMarkdown).not.toContain('Mình sẽ giữ lại phần đáp án');
+    expect(data.sessionState.currentHintLevel).toBe(0);
+    // The quadratic reference was established deterministically, so this
+    // conceptual response needed neither a fallback nor a judge call.
+    expect(modelSpy).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([
+    ['safe', { verdict: 'safe', confidence: 0.95, reasonCode: 'no_disclosure' }, false],
+    ['leak', { verdict: 'leak', confidence: 0.95, reasonCode: 'solution_too_far' }, true],
+    ['uncertain', { verdict: 'uncertain', confidence: 0.95, reasonCode: 'uncertain' }, true],
+    ['low confidence', { verdict: 'safe', confidence: 0.89, reasonCode: 'no_disclosure' }, true],
+    ['malformed', '{bad json', true],
+  ] as const)('reference-free strict judge %s is fail-closed unless high-confidence safe', async (_name, judge, shouldWithhold) => {
+    mockPolicy = { ...mockPolicy, originalProblem: 'Explain why a triangle has angles that add up to 180 degrees.', referenceAnswer: undefined };
+    modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({
+        messageMarkdown: 'Hãy bắt đầu bằng cách vẽ một đường thẳng song song qua một đỉnh.',
+        responseType: 'hint', hintLevel: 1, finalAnswerIncluded: false, internalConceptTags: [],
+      }),
+    });
+    modelSpy.mockResolvedValueOnce({ text: typeof judge === 'string' ? judge : JSON.stringify(judge) });
+    const response = await POST(validRequest());
+    const data = await response.json();
+    expect(response.status).toBe(200);
+    expect(modelSpy).toHaveBeenCalledTimes(3);
+    if (shouldWithhold) expect(data.tutorData.messageMarkdown).not.toContain('vẽ một đường thẳng');
+    else expect(data.tutorData.messageMarkdown).toContain('vẽ một đường thẳng');
   });
 
   test('J. full-solution-authorized turn does not invoke the disclosure judge', async () => {

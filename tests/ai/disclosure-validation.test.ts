@@ -43,6 +43,29 @@ describe('Disclosure Validation', () => {
     expect(result.verdict).toBe('unavailable');
   });
 
+  it.each([
+    'Nghiệm là x = 3 ± √2.',
+    'x = 3 - √2 or 3 + √2',
+    'x ∈ {3 - √2, 3 + √2}',
+    'Hai nghiệm là 3 - sqrt(2) và 3 + sqrt(2).',
+  ])('blocks equivalent quadratic root disclosure: %s', (messageMarkdown) => {
+    const result = validateSemanticDisclosure({
+      ...defaults,
+      messageMarkdown,
+      referenceAnswer: 'x = 3 - sqrt(2) or x = 3 + sqrt(2)',
+    });
+    expect(result.verdict).toBe('leak');
+  });
+
+  it('clears an early conceptual quadratic hint deterministically', () => {
+    const result = validateSemanticDisclosure({
+      ...defaults,
+      messageMarkdown: 'Thử xác định a, b và c trước nhé.',
+      referenceAnswer: 'x = 3 - sqrt(2) or x = 3 + sqrt(2)',
+    });
+    expect(result.verdict).toBe('safe');
+  });
+
   it('allows full solutions when authorized', () => {
     const result = validateSemanticDisclosure({
       ...defaults,
@@ -95,7 +118,8 @@ describe('judgeSemanticDisclosure', () => {
       ...defaults,
       candidateResponse: '__MOCK_JUDGE_UNCERTAIN__',
     });
-    expect(result.verdict).toBe('leak');
+    expect(result.verdict).toBe('unavailable');
+    expect(result.reason).toBe('judge_uncertain');
   });
 
   it('blocks when the judge has low confidence', async () => {
@@ -103,7 +127,7 @@ describe('judgeSemanticDisclosure', () => {
       ...defaults,
       candidateResponse: '__MOCK_JUDGE_LOW_CONFIDENCE__',
     });
-    expect(result.verdict).toBe('leak');
+    expect(result.verdict).toBe('unavailable');
     expect(result.reason).toBe('low_confidence');
   });
 
@@ -112,7 +136,7 @@ describe('judgeSemanticDisclosure', () => {
       ...defaults,
       candidateResponse: '__MOCK_JUDGE_MALFORMED__',
     });
-    expect(result.verdict).toBe('leak');
+    expect(result.verdict).toBe('unavailable');
     expect(result.reason).toBe('judge_failed');
   });
 
@@ -121,7 +145,7 @@ describe('judgeSemanticDisclosure', () => {
       ...defaults,
       candidateResponse: '__MOCK_JUDGE_INVALID_SCHEMA__',
     });
-    expect(result.verdict).toBe('leak');
+    expect(result.verdict).toBe('unavailable');
     expect(result.reason).toBe('schema_invalid');
   });
 
@@ -130,7 +154,7 @@ describe('judgeSemanticDisclosure', () => {
       ...defaults,
       candidateResponse: '__MOCK_JUDGE_TIMEOUT__',
     });
-    expect(result.verdict).toBe('leak');
+    expect(result.verdict).toBe('unavailable');
     expect(result.reason).toBe('judge_failed');
   }, 10000);
 

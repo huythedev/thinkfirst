@@ -4,6 +4,8 @@ import { Type, Schema as GeminiSchema } from '@google/genai';
 import { z } from 'zod';
 
 export const DISCLOSURE_JUDGE_MIN_CONFIDENCE = 0.8;
+/** A reference-free clearance has less evidence, so it deliberately needs more. */
+export const REFERENCE_FREE_DISCLOSURE_JUDGE_MIN_CONFIDENCE = 0.9;
 
 const disclosureJudgeSchema = z.object({
   verdict: z.enum(['safe', 'leak', 'uncertain']),
@@ -14,8 +16,9 @@ const disclosureJudgeSchema = z.object({
     'partial_answer',
     'recoverable_answer',
     'confirmation_leak',
+    'solution_too_far',
     'no_disclosure',
-    'uncertain'
+    'uncertain',
   ]),
 }).strict();
 
@@ -32,13 +35,12 @@ export interface DisclosureValidationResult {
   reason: string;
 }
 
-/**
- * The disclosure boundary is intentionally stricter than the validator result:
- * when a full solution is forbidden, generated prose may leave the server only
- * after an explicit safe verdict.  Keep this decision shared by the route and
- * deterministic evaluation harness so they cannot drift into different
- * fail-open behavior.
- */
+export type DisclosureJudgeResult = DisclosureValidationResult & {
+  judgeVerdict: 'safe' | 'leak' | 'uncertain' | 'failed';
+  reasonCode: string;
+};
+
+/** A non-safe result is never permission to disclose. */
 export function shouldWithholdForDisclosure(
   fullSolutionAllowedThisTurn: boolean,
   result: DisclosureValidationResult,
@@ -48,187 +50,129 @@ export function shouldWithholdForDisclosure(
 
 export function validateSemanticDisclosure(input: DisclosureValidationInput): DisclosureValidationResult {
   if (input.fullSolutionAllowedThisTurn) {
-    return { verdict: 'safe', confidence: 1, reason: 'Full solution authorized this turn.' };
+    return { verdict: 'safe', confidence: 1, reason: 'full_solution_authorized' };
   }
-
-  if (!input.referenceAnswer || input.referenceAnswer.trim().length === 0) {
-    return { verdict: 'unavailable', confidence: 0, reason: 'No trusted reference answer available.' };
+  if (!input.referenceAnswer?.trim()) {
+    return { verdict: 'unavailable', confidence: 0, reason: 'no_trusted_reference' };
   }
-
-  // MVP: Focus on mathematics subject.
   if (input.subject !== 'mathematics') {
-    return { verdict: 'unavailable', confidence: 0, reason: 'Semantic disclosure validation only supported for mathematics MVP.' };
+    return { verdict: 'unavailable', confidence: 0, reason: 'subject_unsupported' };
+  }
+  if (containsExactQuadraticRootLeak(input.messageMarkdown, input.referenceAnswer)) {
+    return { verdict: 'leak', confidence: 1, reason: 'trusted_answer_match' };
   }
 
-  const candidates = extractCandidates(input.messageMarkdown);
-  
-  // Split the reference answer to handle cases like "x = 2 or x = 3"
-  const referenceParts = input.referenceAnswer.split(/,| or | and /).map(p => p.trim()).filter(p => p.length > 0);
-  
-  let allUnsupported = true;
+  const candidates = extractCandidates(input.messageMarkdown).filter(looksLikeMathematicalAnswer);
+  // Ordinary conceptual prompts ("identify a, b and c") contain no candidate
+  // answer at all. They are deterministically safe rather than "unsupported".
+  if (candidates.length === 0) {
+    return { verdict: 'safe', confidence: 1, reason: 'no_mathematical_answer_candidate' };
+  }
+  const referenceParts = input.referenceAnswer.split(/,|\s+or\s+|\s+and\s+/i).map((part) => part.trim()).filter(Boolean);
   let hasUnsupported = false;
-  
+
   for (const candidate of candidates) {
-    // Check against the whole reference answer
-    const result = validateAnswer(candidate, input.referenceAnswer);
-    if (result.verdict === 'equivalent') {
-      return {
-        verdict: 'leak',
-        confidence: result.confidence,
-        reason: 'trusted_answer_match',
-      };
-    }
-    if (result.verdict !== 'unsupported') {
-      allUnsupported = false;
-    } else {
-      hasUnsupported = true;
-    }
-    
-    // Check against parts of the reference answer
-    if (referenceParts.length > 1) {
-      for (const refPart of referenceParts) {
-        const partResult = validateAnswer(candidate, refPart);
-        if (partResult.verdict === 'equivalent') {
-          return {
-            verdict: 'leak',
-            confidence: partResult.confidence,
-            reason: 'trusted_answer_match',
-          };
-        }
-        if (partResult.verdict !== 'unsupported') {
-          allUnsupported = false;
-        } else {
-          hasUnsupported = true;
-        }
-      }
+    const whole = validateAnswer(candidate, input.referenceAnswer);
+    if (whole.verdict === 'equivalent') return { verdict: 'leak', confidence: whole.confidence, reason: 'trusted_answer_match' };
+    if (whole.verdict === 'unsupported') hasUnsupported = true;
+    for (const part of referenceParts) {
+      const checked = validateAnswer(candidate, part);
+      if (checked.verdict === 'equivalent') return { verdict: 'leak', confidence: checked.confidence, reason: 'trusted_answer_match' };
+      if (checked.verdict === 'unsupported') hasUnsupported = true;
     }
   }
-
-  if (hasUnsupported) {
-    return { verdict: 'unavailable', confidence: 0, reason: 'Some checks unsupported, safety cannot be fully established.' };
-  }
-
-  return { verdict: 'safe', confidence: 1, reason: 'No mathematical leakage of the reference answer detected.' };
+  return hasUnsupported
+    ? { verdict: 'unavailable', confidence: 0, reason: 'deterministic_comparison_unsupported' }
+    : { verdict: 'safe', confidence: 1, reason: 'no_mathematical_leak_detected' };
 }
 
 function extractCandidates(text: string): string[] {
   const candidates = new Set<string>();
-
-  // 1. Math mode blocks $$ ... $$ or $ ... $ or \( ... \) or \[ ... \]
-  const mathBlocks = text.match(/\$\$?[^$]+\$\$?|\\\[.*?\\\]|\\\(.*?\\\)/g) || [];
-  for (const match of mathBlocks) {
-    candidates.add(match);
-  }
-
-  // 2. Lines with equal signs, potentially x = 4 or similar.
-  const lines = text.split('\n');
-  for (const line of lines) {
+  for (const match of text.match(/\$\$?[^$]+\$\$?|\\\[.*?\\\]|\\\(.*?\\\)/g) || []) candidates.add(match);
+  for (const line of text.split('\n')) {
     candidates.add(line);
-    const subparts = line.split(/,| or | and /);
-    for (const part of subparts) {
-      candidates.add(part);
-    }
+    for (const part of line.split(/,|\s+or\s+|\s+and\s+/i)) candidates.add(part);
   }
-
-  // 3. Sentences
-  const sentences = text.split(/[.?!](?:\s|$)/);
-  for (const sentence of sentences) {
+  for (const sentence of text.split(/[.?!](?:\s|$)/)) {
     candidates.add(sentence);
-    const subparts = sentence.split(/,| or | and | is |:| be | are /);
-    for (const part of subparts) {
-      candidates.add(part);
-    }
+    for (const part of sentence.split(/,|\s+or\s+|\s+and\s+|\s+is\s+|:|\s+be\s+|\s+are\s+/i)) candidates.add(part);
   }
-  
-  // 4. x \in {2, 3} pattern
-  const inPattern = /\\in\s*\\?\{[^}]+\}/g;
-  const inMatches = text.match(inPattern) || [];
-  for (const match of inMatches) {
-    candidates.add(match);
-  }
-  
-  // Clean up punctuation at the ends of candidates
-  return Array.from(candidates).map(c => c.replace(/^[.?!,;:\s]+|[.?!,;:\s]+$/g, '')).filter(c => c.length > 0);
+  for (const match of text.match(/(?:\\in|∈)\s*\\?\{[^}]+\}/g) || []) candidates.add(match);
+  return [...candidates].map((value) => value.replace(/^[.?!,;:\s]+|[.?!,;:\s]+$/g, '')).filter(Boolean);
+}
+
+function looksLikeMathematicalAnswer(value: string): boolean {
+  return /(?:=|∈|\\in|±|√|sqrt\s*\(|\d)/i.test(value);
 }
 
 export interface JudgeSemanticDisclosureInput {
   problem: string;
-  referenceAnswer: string;
+  /** Omitted only for the stricter reference-free clearance path. */
+  referenceAnswer?: string | null;
   candidateResponse: string;
-  responsePlan: {
-    action: string;
-    allowedHintLevel: number;
-    mayRevealFinalAnswer: boolean;
-  };
+  responsePlan: { action: string; allowedHintLevel: number; mayRevealFinalAnswer: boolean };
 }
 
 export const DISCLOSURE_JUDGE_TIMEOUT_MS = 5000;
 
-export async function judgeSemanticDisclosure(input: JudgeSemanticDisclosureInput): Promise<DisclosureValidationResult> {
-  const judgePrompt = `You are a semantic disclosure judge. Determine if the candidate response reveals the final mathematical answer or confirms it, given the action plan constraints.
-Problem: ${input.problem}
-Reference Answer: ${input.referenceAnswer}
-Candidate Response: ${input.candidateResponse}
-Response Plan Action: ${input.responsePlan.action}
-Response Plan Allowed Hint Level: ${input.responsePlan.allowedHintLevel}
-Response Plan May Reveal Final Answer: ${input.responsePlan.mayRevealFinalAnswer}`;
+/**
+ * The judge is a strict clearance gate. Its result is intentionally mapped to
+ * `unavailable` for failure/uncertainty/low confidence so telemetry never calls
+ * a validator outage a final-answer leak.
+ */
+export async function judgeSemanticDisclosure(input: JudgeSemanticDisclosureInput): Promise<DisclosureJudgeResult> {
+  const referenceFree = !input.referenceAnswer;
+  const judgePrompt = referenceFree
+    ? `You are a strict semantic disclosure judge. There is no trusted final answer available. Determine whether the candidate response itself gives, confirms, or makes trivially recoverable a final answer or complete solution, or goes materially beyond the currently allowed pedagogical step. Return safe only when highly confident it does neither.\nProblem: ${input.problem}\nCandidate Response: ${input.candidateResponse}\nResponse Plan Action: ${input.responsePlan.action}\nResponse Plan Allowed Hint Level: ${input.responsePlan.allowedHintLevel}\nMay Reveal Final Answer: ${input.responsePlan.mayRevealFinalAnswer}`
+    : `You are a semantic disclosure judge. Determine if the candidate response reveals the final mathematical answer or confirms it, given the action plan constraints.\nProblem: ${input.problem}\nReference Answer: ${input.referenceAnswer}\nCandidate Response: ${input.candidateResponse}\nResponse Plan Action: ${input.responsePlan.action}\nResponse Plan Allowed Hint Level: ${input.responsePlan.allowedHintLevel}\nMay Reveal Final Answer: ${input.responsePlan.mayRevealFinalAnswer}`;
 
   const judgeSchema: GeminiSchema = {
     type: Type.OBJECT,
     properties: {
       verdict: { type: Type.STRING, enum: ['safe', 'leak', 'uncertain'] },
       confidence: { type: Type.NUMBER },
-      reasonCode: {
-        type: Type.STRING,
-        enum: ['exact_answer', 'equivalent_answer', 'partial_answer', 'recoverable_answer', 'confirmation_leak', 'no_disclosure', 'uncertain']
-      }
+      reasonCode: { type: Type.STRING, enum: ['exact_answer', 'equivalent_answer', 'partial_answer', 'recoverable_answer', 'confirmation_leak', 'solution_too_far', 'no_disclosure', 'uncertain'] },
     },
-    required: ['verdict', 'confidence', 'reasonCode']
+    required: ['verdict', 'confidence', 'reasonCode'],
   };
-
   const ai = getModelClient();
-
   const apiCall = ai.models.generateContent({
     model: process.env.GEMINI_DISCLOSURE_JUDGE_MODEL || 'gemini-3.6-flash',
     contents: [{ role: 'user', parts: [{ text: judgePrompt }] }],
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: judgeSchema,
-      temperature: 0.1,
-    },
+    config: { responseMimeType: 'application/json', responseSchema: judgeSchema, temperature: 0.1 },
   });
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => {
-      reject(new Error('Disclosure judge timed out.'));
-    }, DISCLOSURE_JUDGE_TIMEOUT_MS);
-  });
-
+  const timeoutPromise = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Disclosure judge timed out.')), DISCLOSURE_JUDGE_TIMEOUT_MS));
   try {
     const judgeResponse = await Promise.race([apiCall, timeoutPromise]);
     const rawText = (judgeResponse.text || '').trim().replace(/^```json|```$/g, '').trim();
-    const judgeParse = JSON.parse(rawText || '{}');
-    const parsed = disclosureJudgeSchema.safeParse(judgeParse);
-
-    if (!parsed.success) {
-      return { verdict: 'leak', confidence: 0, reason: 'schema_invalid' };
-    }
-
-    if (parsed.data.confidence < DISCLOSURE_JUDGE_MIN_CONFIDENCE) {
-      return { verdict: 'leak', confidence: parsed.data.confidence, reason: 'low_confidence' };
-    }
-
-    if (parsed.data.verdict === 'uncertain') {
-       return { verdict: 'leak', confidence: parsed.data.confidence, reason: 'judge_uncertain' };
-    }
-
-    return {
-      verdict: parsed.data.verdict,
-      confidence: parsed.data.confidence,
-      reason: parsed.data.reasonCode,
-    };
-  } catch (e) {
-    console.error('Semantic judge failed:', e);
-    return { verdict: 'leak', confidence: 0, reason: 'judge_failed' };
+    const parsed = disclosureJudgeSchema.safeParse(JSON.parse(rawText || '{}'));
+    if (!parsed.success) return { verdict: 'unavailable', confidence: 0, reason: 'schema_invalid', judgeVerdict: 'failed', reasonCode: 'schema_invalid' };
+    const minimum = referenceFree ? REFERENCE_FREE_DISCLOSURE_JUDGE_MIN_CONFIDENCE : DISCLOSURE_JUDGE_MIN_CONFIDENCE;
+    if (parsed.data.confidence < minimum) return { verdict: 'unavailable', confidence: parsed.data.confidence, reason: 'low_confidence', judgeVerdict: parsed.data.verdict, reasonCode: 'low_confidence' };
+    if (parsed.data.verdict === 'uncertain') return { verdict: 'unavailable', confidence: parsed.data.confidence, reason: 'judge_uncertain', judgeVerdict: 'uncertain', reasonCode: 'uncertain' };
+    return { verdict: parsed.data.verdict, confidence: parsed.data.confidence, reason: parsed.data.reasonCode, judgeVerdict: parsed.data.verdict, reasonCode: parsed.data.reasonCode };
+  } catch (error) {
+    console.error('Semantic judge failed:', error);
+    return { verdict: 'unavailable', confidence: 0, reason: 'judge_failed', judgeVerdict: 'failed', reasonCode: 'judge_failed' };
   }
+}
+
+function containsExactQuadraticRootLeak(candidate: string, reference: string): boolean {
+  const roots = reference.split(/\s+(?:or|and)\s+/i).map((part) => part.replace(/^x\s*(?:=|∈)\s*/i, '').trim()).filter(Boolean);
+  if (roots.length !== 2) return false;
+  const normalizedCandidate = normalizeMathText(candidate);
+  const normalizedRoots = roots.map(normalizeMathText);
+  if (normalizedRoots.every((root) => normalizedCandidate.includes(root))) return true;
+  const plusMinus = normalizedCandidate.match(/x=([+-]?(?:\d+(?:\.\d+)?))(?:\*)?±(sqrt\([^)]*\))/);
+  if (!plusMinus) return false;
+  const [, centre, radical] = plusMinus;
+  return normalizedRoots.includes(`${centre}-${radical}`) && normalizedRoots.includes(`${centre}+${radical}`);
+}
+
+function normalizeMathText(value: string): string {
+  return value.toLowerCase()
+    .replace(/\\sqrt\s*\{([^{}]+)\}/g, 'sqrt($1)')
+    .replace(/√\s*\(?\s*([^\s,).]+)\s*\)?/g, 'sqrt($1)')
+    .replace(/\\in/g, '∈')
+    .replace(/[{}\[\]$\\\s]/g, '');
 }

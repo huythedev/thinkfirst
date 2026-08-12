@@ -328,17 +328,29 @@ Action: ${responsePlan.action}`;
     const trustedReferenceAnswer =
       policy.referenceAnswer ??
       deriveTrustedReferenceAnswer(policy.originalProblem, policy.subject);
-    let semanticResult = validateSemanticDisclosure({
+    const trustedReferenceSource = policy.referenceAnswer
+      ? 'assignment' as const
+      : trustedReferenceAnswer
+        ? 'deterministic' as const
+        : 'none' as const;
+    const fullSolutionAllowed = isFullSolutionAllowedThisTurn(responsePlan);
+    const deterministicResult = validateSemanticDisclosure({
       messageMarkdown: studentVisibleTutorText(tutorParse.value),
       referenceAnswer: trustedReferenceAnswer,
       subject: policy.subject,
-      fullSolutionAllowedThisTurn: isFullSolutionAllowedThisTurn(responsePlan),
+      fullSolutionAllowedThisTurn: fullSolutionAllowed,
     });
+    let semanticResult = deterministicResult;
+    let judgeResult: Awaited<ReturnType<typeof judgeSemanticDisclosure>> | null = null;
 
-    if (semanticResult.verdict !== 'leak' && !isFullSolutionAllowedThisTurn(responsePlan) && trustedReferenceAnswer) {
-      const judgeResult = await judgeSemanticDisclosure({
+    // A deterministic leak is final. Gemini never sees a chance to override it.
+    // With no reference, or when bounded comparison cannot decide, the strict
+    // judge is the only clearance path. Deterministic safe needs no model vote.
+    if (!fullSolutionAllowed && deterministicResult.verdict !== 'leak' &&
+      (!trustedReferenceAnswer || deterministicResult.verdict === 'unavailable')) {
+      judgeResult = await judgeSemanticDisclosure({
         problem: policy.originalProblem,
-        referenceAnswer: trustedReferenceAnswer,
+        referenceAnswer: trustedReferenceAnswer ?? undefined,
         candidateResponse: studentVisibleTutorText(tutorParse.value),
         responsePlan: {
           action: responsePlan.action,
@@ -347,22 +359,25 @@ Action: ${responsePlan.action}`;
         },
       });
 
-      if (judgeResult.verdict === 'leak') {
-         semanticResult = judgeResult;
-      } else if (semanticResult.verdict === 'unavailable' && judgeResult.verdict === 'safe') {
-         // Upgraded from unavailable to safe because Gemini judge cleared it
-         semanticResult = judgeResult;
-      }
+      semanticResult = judgeResult;
     }
 
-    // `unavailable` is not permission to disclose.  Without a trusted reference
-    // there is no authoritative semantic clearance, so the plan-safe fallback is
-    // the only response that may reach the student.
+    const disclosureWithheld = shouldWithholdForDisclosure(fullSolutionAllowed, semanticResult);
+    const semanticWithholdingReason = disclosureWithheld
+      ? semanticResult.verdict === 'leak'
+        ? 'semantic_final_answer_leak' as const
+        : semanticResult.reason === 'judge_uncertain'
+          ? 'semantic_judge_uncertain' as const
+          : semanticResult.reason === 'judge_failed'
+            ? 'semantic_judge_failed' as const
+            : 'semantic_disclosure_unavailable' as const
+      : undefined;
     const enforcement = enforceResponsePlan(
       tutorParse.value,
       responsePlan,
       policy.language,
-      shouldWithholdForDisclosure(isFullSolutionAllowedThisTurn(responsePlan), semanticResult),
+      semanticResult.verdict === 'leak',
+      semanticWithholdingReason,
     );
     // Tags are model-internal routing hints, never a student API field or a
     // student-readable transcript field. Retain them only in local server
@@ -376,10 +391,22 @@ Action: ${responsePlan.action}`;
     };
 
     if (enforcement.violations.length > 0) {
-      console.warn(
-        `Response plan violations corrected for session ${sessionId}:`,
-        enforcement.violations.join(', '),
-      );
+      console.warn('Response plan violations corrected:', {
+        sessionId,
+        violations: enforcement.violations,
+        disclosure: {
+          referenceSource: trustedReferenceSource,
+          referenceAvailable: !!trustedReferenceAnswer,
+          deterministicVerdict: deterministicResult.verdict,
+          deterministicReason: deterministicResult.reason,
+          judgeUsed: judgeResult !== null,
+          judgeVerdict: judgeResult?.judgeVerdict ?? null,
+          judgeReasonCode: judgeResult?.reasonCode ?? null,
+          judgeConfidence: judgeResult?.confidence ?? null,
+          withheld: enforcement.messageWithheld,
+          reasonCode: semanticWithholdingReason ?? null,
+        },
+      });
     }
 
     // The ladder tracks help the student actually received. A semantic or plan
@@ -440,6 +467,7 @@ Action: ${responsePlan.action}`;
         studentId: auth.uid,
         actor: 'student',
         content: message,
+        ...(clientRequestId ? { clientRequestId } : {}),
         createdAt: FieldValue.serverTimestamp(),
       },
       turn: {
@@ -499,6 +527,18 @@ Action: ${responsePlan.action}`;
         internalLearningObjective: tutorParse.value.learningObjective ?? responsePlan.learningObjective,
         internalConceptTags: modelInternalConceptTags,
         classifierPromptVersion: CLASSIFIER_PROMPT_VERSION,
+        disclosure: {
+          referenceAvailable: !!trustedReferenceAnswer,
+          referenceSource: trustedReferenceSource,
+          deterministicVerdict: deterministicResult.verdict,
+          deterministicReason: deterministicResult.reason,
+          judgeUsed: judgeResult !== null,
+          judgeVerdict: judgeResult?.judgeVerdict ?? null,
+          judgeReasonCode: judgeResult?.reasonCode ?? null,
+          judgeConfidence: judgeResult?.confidence ?? null,
+          withheld: enforcement.messageWithheld,
+          reasonCode: semanticWithholdingReason ?? null,
+        },
         createdAt: FieldValue.serverTimestamp(),
         },
       });
@@ -730,6 +770,7 @@ async function handleSafetyTurn(input: SafetyTurnInput): Promise<NextResponse> {
         sequence,
         actor: 'student',
         content: input.message,
+        ...(input.clientRequestId ? { clientRequestId: input.clientRequestId } : {}),
         createdAt: FieldValue.serverTimestamp(),
       });
       transaction.set(turnRef, {

@@ -373,7 +373,16 @@ export type PlanViolation =
   | 'final_answer_forbidden'
   | 'solution_type_forbidden'
   | 'transfer_problem_not_requested'
-  | 'semantic_final_answer_leak';
+  | 'semantic_final_answer_leak'
+  | 'semantic_disclosure_unavailable'
+  | 'semantic_judge_uncertain'
+  | 'semantic_judge_failed';
+
+export type SemanticWithholdingReason =
+  | 'semantic_final_answer_leak'
+  | 'semantic_disclosure_unavailable'
+  | 'semantic_judge_uncertain'
+  | 'semantic_judge_failed';
 
 export interface EnforcementResult {
   response: TutorResponse;
@@ -383,14 +392,15 @@ export interface EnforcementResult {
 }
 
 const WITHHELD_MESSAGE_EN =
-  'I started to answer with more than you should see at this point, so I have held that ' +
-  'back. Tell me what you have tried so far, or which step you are stuck on, and I will ' +
-  'help you from there.';
+  'I’ll keep the answer back and work through it step by step. First, what kind of equation do you think this is?';
 
 const WITHHELD_MESSAGE_VI =
-  'Câu trả lời của tôi vừa rồi đi xa hơn mức bạn nên thấy lúc này, nên tôi đã giữ lại. ' +
-  'Hãy cho tôi biết bạn đã thử những gì, hoặc bạn đang mắc ở bước nào, rồi tôi sẽ giúp bạn ' +
-  'từ đó.';
+  'Mình sẽ giữ lại phần đáp án và đi từng bước nhé. Trước tiên, em thử cho mình biết đây là dạng phương trình gì?';
+
+const UNAVAILABLE_MESSAGE_EN =
+  'Let’s start with one very small step. Can you identify the type of problem first?';
+const UNAVAILABLE_MESSAGE_VI =
+  'Mình sẽ bắt đầu bằng một bước thật nhỏ nhé. Em thử nhận dạng dạng bài này trước được không?';
 
 const WITHHELD_ACTION_EN = 'Describe what you have tried so far.';
 const WITHHELD_ACTION_VI = 'Hãy mô tả những gì bạn đã thử cho đến lúc này.';
@@ -426,6 +436,7 @@ export function enforceResponsePlan(
   plan: TutorResponsePlan,
   language: 'en' | 'vi' = 'en',
   semanticLeak: boolean = false,
+  semanticWithholdingReason?: SemanticWithholdingReason,
 ): EnforcementResult {
   const violations: PlanViolation[] = [];
   const fullSolutionAllowedThisTurn = isFullSolutionAllowedThisTurn(plan);
@@ -442,8 +453,8 @@ export function enforceResponsePlan(
   if (response.responseType === 'transfer_problem' && !plan.generateTransferProblem) {
     violations.push('transfer_problem_not_requested');
   }
-  if (semanticLeak && !fullSolutionAllowedThisTurn) {
-    violations.push('semantic_final_answer_leak');
+  if ((semanticLeak || semanticWithholdingReason) && !fullSolutionAllowedThisTurn) {
+    violations.push(semanticWithholdingReason ?? 'semantic_final_answer_leak');
   }
 
   if (violations.length === 0) {
@@ -464,7 +475,9 @@ export function enforceResponsePlan(
 
   return {
     response: {
-      messageMarkdown: language === 'vi' ? WITHHELD_MESSAGE_VI : WITHHELD_MESSAGE_EN,
+      messageMarkdown: semanticWithholdingReason && semanticWithholdingReason !== 'semantic_final_answer_leak'
+        ? language === 'vi' ? UNAVAILABLE_MESSAGE_VI : UNAVAILABLE_MESSAGE_EN
+        : language === 'vi' ? WITHHELD_MESSAGE_VI : WITHHELD_MESSAGE_EN,
       // This fallback asks the student for their work.  It is not a hidden
       // version of the candidate hint, so its delivered metadata must not claim
       // that any rung was shown.

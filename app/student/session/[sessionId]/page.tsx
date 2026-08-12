@@ -13,6 +13,12 @@ import { Scratchpad } from '@/components/Scratchpad';
 import { SessionProblemImage } from '@/components/SessionProblemImage';
 import { useTranslation } from '@/lib/i18n/client';
 
+type OptimisticMessage = {
+  clientRequestId: string;
+  content: string;
+  status: 'sending' | 'failed';
+};
+
 export default function LearningWorkspace() {
   const { sessionId } = useParams() as { sessionId: string };
   const { user, loading: authLoading } = useAuth();
@@ -26,6 +32,8 @@ export default function LearningWorkspace() {
   const [sending, setSending] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
+  const [typingVisible, setTypingVisible] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<'problem' | 'chat' | 'scratchpad'>('chat');
   const [transferProblem, setTransferProblem] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -71,7 +79,16 @@ export default function LearningWorkspace() {
     const unsubscribeTurns = onSnapshot(
       q,
       (snapshot) => {
-        setTurns(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+        const committedTurns = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        setTurns(committedTurns);
+        // The server owns this field and writes it together with the exchange.
+        // Matching by request id (never text) permits legitimate duplicate text.
+        const committedRequestIds = new Set(
+          committedTurns
+            .filter((turn: any) => turn.actor === 'student' && typeof turn.clientRequestId === 'string')
+            .map((turn: any) => turn.clientRequestId),
+        );
+        setOptimisticMessages((current) => current.filter((item) => !committedRequestIds.has(item.clientRequestId)));
       },
       (error) => {
         console.error('Failed to load transcript', error);
@@ -96,19 +113,30 @@ export default function LearningWorkspace() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [turns]);
+  }, [turns, optimisticMessages]);
 
-  const handleSend = async () => {
-    if (!message.trim() || sending || !user || !session || session.status !== 'active') return;
+  const hasPendingMessage = optimisticMessages.some((item) => item.status === 'sending');
+
+  useEffect(() => {
+    if (!hasPendingMessage) return;
+    const timer = window.setTimeout(() => setTypingVisible(true), 300);
+    return () => window.clearTimeout(timer);
+  }, [hasPendingMessage]);
+
+  const handleSend = async (messageToSend = message, retryRequestId?: string) => {
+    if (!messageToSend.trim() || sending || hasPendingMessage || !user || !session || session.status !== 'active') return;
     
     setSending(true);
     setSendError(null);
-    const userMsg = message.trim();
+    const userMsg = messageToSend.trim();
     const pending = pendingSendRef.current;
-    const clientRequestId = pending?.message === userMsg
-      ? pending.clientRequestId
-      : crypto.randomUUID();
+    const clientRequestId = retryRequestId ?? (pending?.message === userMsg ? pending.clientRequestId : crypto.randomUUID());
     pendingSendRef.current = { message: userMsg, clientRequestId };
+    setTypingVisible(false);
+    setOptimisticMessages((current) => [
+      ...current.filter((item) => item.clientRequestId !== clientRequestId),
+      { clientRequestId, content: userMsg, status: 'sending' },
+    ]);
     setMessage('');
     
     try {
@@ -158,10 +186,22 @@ export default function LearningWorkspace() {
     } catch (err) {
       console.error(err);
       setSendError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+      setOptimisticMessages((current) => current.map((item) =>
+        item.clientRequestId === clientRequestId ? { ...item, status: 'failed' } : item,
+      ));
       setMessage(userMsg); // restore on error
     } finally {
       setSending(false);
     }
+  };
+
+  const retryOptimisticMessage = (item: OptimisticMessage) => {
+    void handleSend(item.content, item.clientRequestId);
+  };
+
+  const sendQuickAction = (actionMessage: string) => {
+    if (!sessionIsActive || hasPendingMessage) return;
+    void handleSend(actionMessage);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -349,12 +389,12 @@ export default function LearningWorkspace() {
             return (
               <div key={turn.id} className={`flex ${turn.actor === 'student' ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`max-w-[85%] rounded-2xl p-4 ${
+                  className={`max-w-[80%] rounded-2xl px-4 py-3 text-[15px] leading-6 ${
                     turn.actor === 'student'
                       ? 'bg-blue-600 text-white rounded-br-none'
                       : isSupport
                         ? 'bg-background border border-amber-300 text-amber-950 rounded-bl-none'
-                        : 'bg-surface-muted text-foreground rounded-bl-none'
+                        : 'bg-slate-100 text-slate-900 border border-slate-200 dark:bg-slate-800 dark:text-slate-50 dark:border-slate-700 rounded-bl-none'
                   }`}
                   // Announced immediately: this is the one message a student must
                   // not miss, and a screen reader would otherwise reach it only on
@@ -365,6 +405,11 @@ export default function LearningWorkspace() {
                     <div className="whitespace-pre-wrap">{turn.content}</div>
                   ) : (
                     <>
+                      {!isSupport && (
+                        <p className="mb-1 text-[11px] font-semibold tracking-wide text-slate-500 dark:text-slate-400">
+                          ThinkFirst
+                        </p>
+                      )}
                       {isSupport && (
                         <p className="text-xs font-semibold uppercase tracking-wide text-amber-800 mb-2">
                           Support
@@ -387,12 +432,32 @@ export default function LearningWorkspace() {
             );
           })}
 
-          {sending && (
+          {optimisticMessages.map((item) => (
+            <div key={item.clientRequestId} className="flex justify-end" data-testid="optimistic-student-message">
+              <div className="max-w-[80%] rounded-2xl rounded-br-none bg-blue-600 px-4 py-3 text-[15px] leading-6 text-white">
+                <div className="whitespace-pre-wrap">{item.content}</div>
+                {item.status === 'failed' && (
+                  <button
+                    type="button"
+                    onClick={() => retryOptimisticMessage(item)}
+                    className="mt-2 text-xs font-semibold underline underline-offset-2"
+                  >
+                    Không gửi được · Thử lại
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {typingVisible && hasPendingMessage && (
             <div className="flex justify-start">
-              <div className="max-w-[85%] rounded-2xl p-4 bg-surface-muted text-foreground rounded-bl-none flex items-center gap-2">
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></span>
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></span>
+              <div className="max-w-[80%] rounded-2xl rounded-bl-none border border-slate-200 bg-slate-100 px-4 py-3 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-50">
+                <div className="flex items-center gap-2" role="status" aria-live="polite" data-testid="typing-indicator">
+                  <span className="sr-only">ThinkFirst đang suy nghĩ…</span>
+                  <span aria-hidden="true" className="w-2 h-2 bg-slate-500 rounded-full animate-bounce"></span>
+                  <span aria-hidden="true" className="w-2 h-2 bg-slate-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></span>
+                  <span aria-hidden="true" className="w-2 h-2 bg-slate-500 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></span>
+                </div>
               </div>
             </div>
           )}
@@ -427,23 +492,23 @@ export default function LearningWorkspace() {
               aria-label="Your message to the tutor"
               className="flex-1 p-4 border border-border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 resize-none font-sans"
               rows={2}
-              disabled={!sessionIsActive}
+              disabled={!sessionIsActive || hasPendingMessage}
             />
             <button
-              onClick={handleSend}
-              disabled={!sessionIsActive || sending || !message.trim()}
+              onClick={() => void handleSend()}
+              disabled={!sessionIsActive || sending || hasPendingMessage || !message.trim()}
               className="px-6 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 disabled:opacity-50"
             >
               {t('activeSession.send')}
             </button>
           </div>
           <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
-            <button disabled={!sessionIsActive} onClick={() => setMessage(t("sessionActions.checkStep") + ": ")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.checkStep')}</button>
-            <button disabled={!sessionIsActive} onClick={() => setMessage(t("sessionActions.stuck") + ".")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.stuck')}</button>
-            <button disabled={!sessionIsActive} onClick={() => setMessage(t("sessionActions.explainConcept") + "?")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.explainConcept')}</button>
-            <button disabled={!sessionIsActive} onClick={() => setMessage(t("sessionActions.smallerHint") + "?")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.smallerHint')}</button>
-            <button disabled={!sessionIsActive} onClick={() => setMessage(t("sessionActions.explainDifferently") + "?")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.explainDifferently')}</button>
-            <button disabled={!sessionIsActive} onClick={() => setMessage(t("sessionActions.reportIssue") + ", ")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.reportIssue')}</button>
+            <button disabled={!sessionIsActive || hasPendingMessage} onClick={() => sendQuickAction(t("sessionActions.checkStep") + ":")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.checkStep')}</button>
+            <button disabled={!sessionIsActive || hasPendingMessage} onClick={() => sendQuickAction(t("sessionActions.stuck") + ".")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.stuck')}</button>
+            <button disabled={!sessionIsActive || hasPendingMessage} onClick={() => sendQuickAction(t("sessionActions.explainConcept") + "?")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.explainConcept')}</button>
+            <button disabled={!sessionIsActive || hasPendingMessage} onClick={() => sendQuickAction(t("sessionActions.smallerHint") + "?")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.smallerHint')}</button>
+            <button disabled={!sessionIsActive || hasPendingMessage} onClick={() => sendQuickAction(t("sessionActions.explainDifferently") + "?")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.explainDifferently')}</button>
+            <button disabled={!sessionIsActive || hasPendingMessage} onClick={() => sendQuickAction(t("sessionActions.reportIssue") + ",")} className="text-xs bg-surface border border-border px-3 py-1.5 rounded-full hover:bg-surface-muted disabled:opacity-50 whitespace-nowrap">{t('sessionActions.reportIssue')}</button>
           </div>
         </div>
       </div>
