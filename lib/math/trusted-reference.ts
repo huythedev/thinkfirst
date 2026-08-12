@@ -12,6 +12,9 @@ export function deriveTrustedReferenceAnswer(problem: string, subject: string): 
     .replace(/[−–—]/g, '-')
     .replace(/[×·]/g, '*')
     .replace(/^\s*(solve(?:\s+for\s+x)?\s*:?|find\s+x\s*:?)/i, '')
+    // Terminal prose punctuation is presentation, not part of the narrowly
+    // supported equation grammar. Keep every other character fail-closed.
+    .replace(/[.?!]+\s*$/, '')
     .trim();
   const pieces = equation.split('=');
   if (pieces.length !== 2) return null;
@@ -32,6 +35,7 @@ export function deriveTrustedReferenceAnswer(problem: string, subject: string): 
 function parseLinearExpression(raw: string): { x: number; constant: number } | null {
   const compact = raw.replace(/\s+/g, '');
   if (!compact || compact.length > 120 || /[^0-9xX+\-*.]/.test(compact)) return null;
+  if (/[+-]$/.test(compact) || /\+\+|--|\+-|-\+/.test(compact)) return null;
 
   const terms = compact.replace(/-/g, '+-').split('+').filter(Boolean);
   if (terms.length === 0) return null;

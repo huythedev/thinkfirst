@@ -273,6 +273,26 @@ export function parseTutorResponse(raw: string | undefined | null): ParseOutcome
   return validate(tutorResponseSchema as unknown as z.ZodType<TutorResponse>, raw);
 }
 
+/**
+ * The complete model-generated text a student can receive from a tutor turn.
+ *
+ * Keep this representation canonical: disclosure validation, the semantic
+ * judge, and the evaluation harness must inspect exactly the same surface.
+ * `internalConceptTags` are deliberately not included because the route clears
+ * them before a response is persisted or returned to a student.
+ */
+export function studentVisibleTutorText(response: TutorResponse): string {
+  return [
+    response.messageMarkdown,
+    response.studentActionRequired,
+    response.checkForUnderstanding,
+    response.confidenceStatement,
+    response.learningObjective,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join('\n\n');
+}
+
 export function parseAttemptEvaluation(
   raw: string | undefined | null,
 ): ParseOutcome<AttemptEvaluation> {
@@ -372,6 +392,9 @@ const WITHHELD_MESSAGE_VI =
   'Hãy cho tôi biết bạn đã thử những gì, hoặc bạn đang mắc ở bước nào, rồi tôi sẽ giúp bạn ' +
   'từ đó.';
 
+const WITHHELD_ACTION_EN = 'Describe what you have tried so far.';
+const WITHHELD_ACTION_VI = 'Hãy mô tả những gì bạn đã thử cho đến lúc này.';
+
 /**
  * Returns true only if the response plan explicitly authorizes a full solution
  * to be delivered on the current turn.
@@ -441,7 +464,6 @@ export function enforceResponsePlan(
 
   return {
     response: {
-      ...response,
       messageMarkdown: language === 'vi' ? WITHHELD_MESSAGE_VI : WITHHELD_MESSAGE_EN,
       // This fallback asks the student for their work.  It is not a hidden
       // version of the candidate hint, so its delivered metadata must not claim
@@ -449,8 +471,11 @@ export function enforceResponsePlan(
       responseType: 'question',
       hintLevel: 0,
       finalAnswerIncluded: false,
-      studentActionRequired:
-        response.studentActionRequired ?? 'Describe what you have tried so far.',
+      studentActionRequired: language === 'vi' ? WITHHELD_ACTION_VI : WITHHELD_ACTION_EN,
+      checkForUnderstanding: null,
+      confidenceStatement: null,
+      learningObjective: null,
+      internalConceptTags: [],
     },
     violations,
     messageWithheld: true,

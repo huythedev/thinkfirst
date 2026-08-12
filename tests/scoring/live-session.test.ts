@@ -190,15 +190,47 @@ describe('reasoning and verification provenance', () => {
     expect(stateOf(turns, 'reasoningExplanation')).toBe('declined');
   });
 
+  it('does not create an explanation decline from a withheld plan', () => {
+    const turns = [
+      studentTurn(1),
+      tutorTurn(2, {
+        // The original plan is audit-only; this is the generic fallback actually delivered.
+        originalResponsePlan: { requiresExplanation: true },
+        responsePlan: { requiresExplanation: false, action: 'ask_for_attempt' },
+      }),
+    ];
+    expect(stateOf(turns, 'reasoningExplanation')).toBe('not_applicable');
+  });
+
+  it('keeps a legitimate delivered explanation obligation', () => {
+    const turns = [studentTurn(1), tutorTurn(2, { responsePlan: { requiresExplanation: true } })];
+    expect(stateOf(turns, 'reasoningExplanation')).toBe('declined');
+  });
+
   it('marks verification not_applicable outside verify mode when it never came up', () => {
     expect(stateOf([studentTurn(1), tutorTurn(2)], 'verificationBehavior')).toBe('not_applicable');
   });
 
-  it('marks verification declined in verify mode when the student never replied', () => {
+  it('marks verification declined only after a verification task was delivered', () => {
     const verifySession: RawSession = { ...session, mode: 'verify' };
-    const score = scoreSession(deriveSessionMetrics(verifySession, [tutorTurn(1)]));
+    const score = scoreSession(deriveSessionMetrics(verifySession, [
+      tutorTurn(1, { responsePlan: { requiresVerification: true } }),
+    ]));
     expect(score.components.find((entry) => entry.id === 'verificationBehavior')!.state).toBe(
       'declined',
+    );
+  });
+
+  it('does not create a verification decline from a withheld plan', () => {
+    const verifySession: RawSession = { ...session, mode: 'verify' };
+    const score = scoreSession(deriveSessionMetrics(verifySession, [
+      tutorTurn(1, {
+        originalResponsePlan: { requiresVerification: true },
+        responsePlan: { requiresVerification: false, action: 'ask_for_attempt' },
+      }),
+    ]));
+    expect(score.components.find((entry) => entry.id === 'verificationBehavior')!.state).toBe(
+      'not_applicable',
     );
   });
 });

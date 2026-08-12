@@ -193,6 +193,11 @@ export interface HostileModelOutput {
     | 'safety_message';
   hintLevel: number;
   finalAnswerIncluded: boolean;
+  /** Every student-visible generated field is part of the disclosure surface. */
+  studentActionRequired?: string | null;
+  checkForUnderstanding?: string | null;
+  confidenceStatement?: string | null;
+  learningObjective?: string | null;
   /**
    * The literal final answer this hostile output tries to smuggle through.
    * Leakage is measured by searching the delivered message for this string, so

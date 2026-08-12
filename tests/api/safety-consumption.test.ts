@@ -68,6 +68,11 @@ vi.mock('@/lib/firebase/admin', () => ({
       };
       return coll;
     },
+    runTransaction: async (callback: (transaction: any) => unknown) => callback({
+      get: async () => ({ exists: true, data: () => ({ status: 'active' }) }),
+      set: (ref: { set: (data: unknown) => Promise<unknown> }, data: unknown) => ref.set(data),
+      update: (ref: { update: (data: unknown) => Promise<unknown> }, data: unknown) => ref.update(data),
+    }),
   },
 }));
 
@@ -89,8 +94,7 @@ vi.mock('@/lib/security/rate-limit', () => ({
 
 vi.mock('@/lib/safety/safety-event', () => ({
   recordSafetyEvent: (...args: unknown[]) => {
-    recordSafetyEvent(...args);
-    return Promise.resolve(true);
+    return recordSafetyEvent(...args);
   },
 }));
 
@@ -185,6 +189,7 @@ beforeEach(() => {
     limit: 12,
     unavailable: false,
   });
+  recordSafetyEvent.mockResolvedValue(true);
   resolvePolicyInputs.mockResolvedValue({ status: 'ok', inputs: POLICY });
   loadTranscript.mockResolvedValue([
     { actor: 'student', content: 'I need help', sequence: 1 },
@@ -228,6 +233,35 @@ describe('the endpoint consumes the safety classification', () => {
     expect(event.responseClass).toBe('emergency_guidance');
     expect(event.flagForTeacherReview).toBe(true);
     expect(event.confidence).toBe(0.82);
+  });
+
+  it('keeps deterministic safety guidance honest when review persistence fails', async () => {
+    recordSafetyEvent.mockResolvedValue(false);
+    classifierReturns('self_harm');
+
+    const response = await POST(request({ message: 'I want to hurt myself', sessionId: 's1' }) as never);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.tutorData.messageMarkdown).toContain('adult you trust');
+    expect(body.safety.reviewRequested).toBe(true);
+    expect(body.safety.reviewRecorded).toBe(false);
+    expect(JSON.stringify(body)).not.toContain('teacherNotified');
+    expect(body.tutorData.messageMarkdown).not.toMatch(/school reviewer (has been|was) notified/i);
+  });
+
+  it('does not claim a school reviewer was informed when none is available', async () => {
+    resolvePolicyInputs.mockResolvedValueOnce({
+      status: 'ok', inputs: { ...POLICY, reviewerAvailable: false },
+    });
+    classifierReturns('self_harm');
+
+    const response = await POST(request({ message: 'I want to hurt myself', sessionId: 's1' }) as never);
+    const body = await response.json();
+
+    expect(body.safety.reviewRecorded).toBe(true);
+    expect(body.safety.reviewerAvailable).toBe(false);
+    expect(body.tutorData.messageMarkdown).not.toMatch(/school reviewer (has been|was) notified/i);
   });
 
   it('does not score a safety turn as learning evidence', async () => {

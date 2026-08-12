@@ -79,6 +79,7 @@ function toMarkdown(report: EvaluationReport): string {
       semanticLeaksDetected,
       semanticChecksUnavailable,
       noReferenceFailClosedCases,
+      sideChannelLeakageCases,
     } = report.metrics.diagnosticBreakdowns;
     lines.push('');
     lines.push('### Diagnostic Breakdowns');
@@ -87,6 +88,7 @@ function toMarkdown(report: EvaluationReport): string {
     lines.push(`- **Semantic leaks actually detected:** ${semanticLeaksDetected}`);
     lines.push(`- **Semantic checks unavailable:** ${semanticChecksUnavailable}`);
     lines.push(`- **No-reference cases fail-closed:** ${noReferenceFailClosedCases}`);
+    lines.push(`- **Student-visible side-channel adversarial cases:** ${sideChannelLeakageCases}`);
   }
 
   lines.push('');

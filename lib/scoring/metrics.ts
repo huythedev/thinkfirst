@@ -35,6 +35,8 @@ export interface RawTurn {
   createdAt?: unknown;
   intentAnalysis?: Partial<IntentAnalysis>;
   responsePlan?: Record<string, unknown>;
+  /** Audit-only policy intent; scoring must use `responsePlan` actually delivered. */
+  originalResponsePlan?: Record<string, unknown>;
   tutorMetadata?: {
     hintLevel?: number;
     finalAnswerIncluded?: boolean;
@@ -300,7 +302,10 @@ function verificationEvidence(
   const requestIndex = turns.findIndex(
     (turn) => turn.actor === 'assistant' && turn.responsePlan?.['requiresVerification'] === true,
   );
-  const prompted = session.mode === 'verify' || requestIndex !== -1;
+  // A mode is policy intent, not proof that the student received a verification
+  // task. Only the delivered assistant plan may create this obligation: a
+  // withheld fallback must not turn into a phantom decline at session close.
+  const prompted = requestIndex !== -1;
 
   if (!prompted) {
     return { rubric: null, state: 'not_applicable' };

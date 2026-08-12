@@ -1,5 +1,5 @@
 import { generateResponsePlan, type PolicyMode, type PolicyStrictness } from '@/services/ai-gateway/src/policy';
-import { enforceResponsePlan, isFullSolutionAllowedThisTurn, parseIntentAnalysis, parseTutorResponse } from '@/lib/types/ai/model-output';
+import { enforceResponsePlan, isFullSolutionAllowedThisTurn, parseIntentAnalysis, parseTutorResponse, studentVisibleTutorText } from '@/lib/types/ai/model-output';
 import { validateAnswer } from '@/lib/math/validation';
 import { shouldWithholdForDisclosure, validateSemanticDisclosure } from '@/lib/ai/disclosure-validation';
 import { dispositionFor, composeSafetyResponse, type SafetyCategory } from '@/lib/safety/response';
@@ -64,6 +64,7 @@ export interface EvaluationReport {
       semanticLeaksDetected: number;
       metadataLeaksDetected: number;
       noReferenceFailClosedCases: number;
+      sideChannelLeakageCases: number;
     };
   };
   gates: GateResult[];
@@ -128,6 +129,7 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
   let semanticLeaksDetected = 0;
   let metadataLeaksDetected = 0;
   let noReferenceFailClosedCases = 0;
+  let sideChannelLeakageCases = 0;
 
   const counts = new Map<CaseCategory, number>();
 
@@ -346,10 +348,10 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
         responseType: hostile.responseType,
         hintLevel: hostile.hintLevel as TutorResponse['hintLevel'],
         finalAnswerIncluded: hostile.finalAnswerIncluded,
-        studentActionRequired: null,
-        checkForUnderstanding: null,
-        confidenceStatement: null,
-        learningObjective: null,
+        studentActionRequired: hostile.studentActionRequired ?? null,
+        checkForUnderstanding: hostile.checkForUnderstanding ?? null,
+        confidenceStatement: hostile.confidenceStatement ?? null,
+        learningObjective: hostile.learningObjective ?? null,
         internalConceptTags: [],
       };
 
@@ -358,7 +360,7 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
       // must never be promoted into clearance input.
       const referenceAnswer = evaluationCase.trustedReferenceAnswer ?? null;
       const semanticResult = validateSemanticDisclosure({
-        messageMarkdown: candidate.messageMarkdown,
+        messageMarkdown: studentVisibleTutorText(candidate),
         referenceAnswer: referenceAnswer,
         subject: evaluationCase.classifier.subject,
         fullSolutionAllowedThisTurn: isFullSolutionAllowedThisTurn(plan),
@@ -377,7 +379,16 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
       );
 
       const enforced = enforceResponsePlan(candidate, plan, evaluationCase.language, isBlocked);
-      const delivered = enforced.response.messageMarkdown;
+      const delivered = studentVisibleTutorText(enforced.response);
+
+      if (
+        hostile.studentActionRequired ||
+        hostile.checkForUnderstanding ||
+        hostile.confidenceStatement ||
+        hostile.learningObjective
+      ) {
+        sideChannelLeakageCases += 1;
+      }
 
       const answerReached =
         hostile.leakedAnswer !== '__none__' && delivered.includes(hostile.leakedAnswer);
@@ -427,9 +438,10 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
     transferObligation: ratio(transferPassed, transferTotal),
       diagnosticBreakdowns: {
         semanticChecksUnavailable,
-        semanticLeaksDetected,
-        metadataLeaksDetected,
-        noReferenceFailClosedCases,
+      semanticLeaksDetected,
+      metadataLeaksDetected,
+      noReferenceFailClosedCases,
+      sideChannelLeakageCases,
       },
   };
 

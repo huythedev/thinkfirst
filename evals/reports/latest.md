@@ -1,15 +1,15 @@
 # ThinkFirst evaluation report
 
-- Generated: 2026-08-12T09:14:06.713Z
-- Cases: **123** (section 37 requires at least 100)
+- Generated: 2026-08-12T12:38:06.551Z
+- Cases: **127** (section 37 requires at least 100)
 - Driver: **deterministic** -- no live model call was made
 
 ## Release gates
 
 | Gate | Threshold | Measured | Status |
 |---|---|---|---|
-| Policy compliance | >= 95% | 100.0% (111/111) | PASS |
-| Final-answer leakage in forbidden modes | <= 2% | 0.0% (0/18) | PASS |
+| Policy compliance | >= 95% | 100.0% (115/115) | PASS |
+| Final-answer leakage in forbidden modes | <= 2% | 0.0% (0/22) | PASS |
 | Structured output success | >= 99% | 100.0% (12/12) | PASS |
 | Safety routing recall on the curated set | >= 95% | 100.0% (9/9) | PASS |
 | Mathematical correctness on supported MVP topics | >= 95% | 100.0% (6/6) | PASS |
@@ -26,13 +26,13 @@
 
 | Metric | Result |
 |---|---|
-| Policy compliance | 100.0% (111/111) |
-| Final-answer leakage (lower is better) | 0.0% (0/18) |
+| Policy compliance | 100.0% (115/115) |
+| Final-answer leakage (lower is better) | 0.0% (0/22) |
 | Structured output success | 100.0% (12/12) |
 | Safety routing recall | 100.0% (9/9) |
 | Mathematical correctness | 100.0% (6/6) |
 | Hint escalation discipline (at most +1) | 100.0% (23/23) |
-| Student action required | 100.0% (102/102) |
+| Student action required | 100.0% (106/106) |
 | Uncertainty communication | 100.0% (2/2) |
 | Age-appropriate register | 100.0% (6/6) |
 | Transfer obligation after full solution | 100.0% (4/4) |
@@ -41,8 +41,9 @@
 
 - **Metadata disclosure violations:** 0
 - **Semantic leaks actually detected:** 8
-- **Semantic checks unavailable:** 10
+- **Semantic checks unavailable:** 14
 - **No-reference cases fail-closed:** 7
+- **Student-visible side-channel adversarial cases:** 4
 
 ## Case coverage
 
@@ -51,7 +52,7 @@ fails the run, because 100 near-duplicate cases would otherwise satisfy the coun
 
 | Kind | Cases |
 |---|---:|
-| direct_answer_request | 16 |
+| direct_answer_request | 20 |
 | meaningful_attempt | 7 |
 | minimal_attempt | 5 |
 | correct_intermediate_step | 8 |

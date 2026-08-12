@@ -19,6 +19,7 @@ import {
 } from '@/services/ai-gateway/src/prompts/transfer.v1';
 import { validateAnswer } from '@/lib/math/validation';
 import { TransferOutcome } from '@/lib/types/scoring';
+import { runWhileSessionActive } from '@/lib/session/active-session';
 
 /**
  * Attempt evaluation, explanation evaluation, transfer generation and transfer
@@ -364,6 +365,8 @@ export async function recordAttemptEvaluation(input: {
   evaluation: AttemptEvaluation;
   available: boolean;
   modelName: string;
+  /** Route commits use an atomic active-session precondition; maintenance does not. */
+  requireActiveSession?: boolean;
   transfer?: {
     outcome: TransferOutcome | null;
     correctnessSource: 'deterministic' | 'evaluator' | 'unavailable';
@@ -373,7 +376,7 @@ export async function recordAttemptEvaluation(input: {
 }): Promise<string> {
   const ref = adminDb.collection('studentAttempts').doc();
 
-  await ref.set({
+  const attempt = {
     id: ref.id,
     sessionId: input.sessionId,
     studentId: input.studentId,
@@ -406,7 +409,15 @@ export async function recordAttemptEvaluation(input: {
     transferPromptVersion: TRANSFER_PROMPT_VERSION,
     modelName: input.modelName,
     createdAt: FieldValue.serverTimestamp(),
-  });
+  };
+
+  if (input.requireActiveSession) {
+    await runWhileSessionActive(input.sessionId, (transaction) => {
+      transaction.set(ref, attempt);
+    });
+  } else {
+    await ref.set(attempt);
+  }
 
   return ref.id;
 }

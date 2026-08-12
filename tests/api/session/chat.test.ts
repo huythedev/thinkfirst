@@ -46,16 +46,33 @@ vi.mock('@/lib/session/evaluation', () => ({
 
 describe('POST /api/session/chat', () => {
   let modelSpy: any;
+  let transactionSet: any;
+  let transactionUpdate: any;
+  let transactionStatus: 'active' | 'completed' | 'abandoned';
 
   beforeAll(() => {
     process.env.AI_MODEL_DRIVER = 'mock';
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     modelSpy = vi.fn();
     setMockModelHandler(modelSpy);
+    transactionStatus = 'active';
+    transactionSet = vi.fn();
+    transactionUpdate = vi.fn();
+    const { adminDb } = await import('@/lib/firebase/admin');
+    (adminDb.runTransaction as any).mockImplementation(async (callback: any) =>
+      callback({
+        get: vi.fn().mockResolvedValue({
+          exists: true,
+          data: () => ({ status: transactionStatus }),
+        }),
+        set: transactionSet,
+        update: transactionUpdate,
+      }),
+    );
     mockPolicy = {
       grade: 9,
       originalProblem: 'Solve for x: x = 5',
@@ -106,6 +123,59 @@ describe('POST /api/session/chat', () => {
     const res = await POST(validRequest());
     expect(res.status).toBe(409);
     expect(modelSpy).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['studentActionRequired', { studentActionRequired: 'Write x = 5.' }],
+    ['checkForUnderstanding', { checkForUnderstanding: 'Is your final answer x = 5?' }],
+    ['confidenceStatement', { confidenceStatement: 'The correct solution is x = 5.' }],
+    ['learningObjective', { learningObjective: 'Reach the final solution x = 5.' }],
+  ] as const)('withholds a final answer leaked only through %s at the API boundary', async (_field, sideChannel) => {
+    modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({
+        messageMarkdown: 'Try isolating the variable.', responseType: 'hint', hintLevel: 1,
+        finalAnswerIncluded: false, internalConceptTags: ['x = 5'], ...sideChannel,
+      }),
+    });
+
+    const res = await POST(validRequest());
+    const body = await res.json();
+    const visible = [
+      body.tutorData.messageMarkdown, body.tutorData.studentActionRequired,
+      body.tutorData.checkForUnderstanding, body.tutorData.confidenceStatement,
+      body.tutorData.learningObjective,
+    ].filter(Boolean).join('\n');
+
+    expect(res.status).toBe(200);
+    expect(visible).not.toContain('x = 5');
+    expect(body.tutorData.internalConceptTags).toEqual([]);
+    expect(transactionSet).toHaveBeenCalledOnce();
+    expect(JSON.stringify(transactionSet.mock.calls[0][1])).not.toContain('x = 5');
+  });
+
+  test('rejects the real in-flight completion race before any educational write', async () => {
+    let releaseTutor!: (value: { text: string }) => void;
+    const heldTutor = new Promise<{ text: string }>((resolve) => { releaseTutor = resolve; });
+    modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
+    modelSpy.mockImplementationOnce(() => heldTutor);
+
+    const request = POST(validRequest());
+    await vi.waitFor(() => expect(modelSpy).toHaveBeenCalledTimes(2));
+    transactionStatus = 'completed'; // session completes while the tutor call is held
+    releaseTutor({
+      text: JSON.stringify({
+        messageMarkdown: 'x = 5', responseType: 'hint', hintLevel: 1,
+        finalAnswerIncluded: false, internalConceptTags: [],
+      }),
+    });
+
+    const response = await request;
+    expect(response.status).toBe(409);
+    expect(transactionSet).not.toHaveBeenCalled();
+    expect(transactionUpdate).not.toHaveBeenCalled();
+    const { recordAttemptEvaluation } = await import('@/lib/session/evaluation');
+    expect(recordAttemptEvaluation).not.toHaveBeenCalled();
   });
 
   test('F2. semantic judge malformed JSON fails closed', async () => {

@@ -1,5 +1,6 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
+import { runWhileSessionActive } from '@/lib/session/active-session';
 import { computeIndependenceProfile, scoreSession } from '@/lib/scoring/independence';
 import {
   RawAttempt,
@@ -163,7 +164,7 @@ export async function loadPreviousProfileScore(studentId: string): Promise<numbe
 async function loadProfileBaselineForSession(
   studentId: string,
   sessionId: string,
-): Promise<number | null> {
+): Promise<{ score: number | null; capturedAt: unknown | null }> {
   const sessionSnapshot = await adminDb
     .collection('independenceSnapshots')
     .doc(`${sessionId}__${SCORING_VERSION}`)
@@ -171,8 +172,13 @@ async function loadProfileBaselineForSession(
   const storedBaseline = sessionSnapshot.exists
     ? (sessionSnapshot.data() as Record<string, unknown>).profileBaselineScore
     : null;
-  if (typeof storedBaseline === 'number') return storedBaseline;
-  return loadPreviousProfileScore(studentId);
+  if (typeof storedBaseline === 'number') {
+    return {
+      score: storedBaseline,
+      capturedAt: (sessionSnapshot.data() as Record<string, unknown>).profileBaselineCapturedAt ?? null,
+    };
+  }
+  return { score: await loadPreviousProfileScore(studentId), capturedAt: null };
 }
 
 /** Weighted 0-100 points for the section 28 `components` field shape. */
@@ -237,11 +243,13 @@ export interface PersistResult {
 export async function persistSessionEvidence(
   studentId: string,
   sessionId: string,
+  options: { requireActiveSession?: boolean } = {},
 ): Promise<PersistResult> {
-  const [allMetrics, profileBaselineScore] = await Promise.all([
+  const [allMetrics, profileBaseline] = await Promise.all([
     loadSessionMetrics(studentId),
     loadProfileBaselineForSession(studentId, sessionId),
   ]);
+  const profileBaselineScore = profileBaseline.score;
 
   const metrics =
     allMetrics.find((entry) => entry.sessionId === sessionId) ?? allMetrics[0] ?? null;
@@ -267,11 +275,7 @@ export async function persistSessionEvidence(
   const sessionSnapshotId = `${sessionId}__${SCORING_VERSION}`;
   const profileSnapshotId = `${studentId}__profile__${SCORING_VERSION}`;
 
-  const writes: Promise<unknown>[] = [
-    adminDb
-      .collection('independenceSnapshots')
-      .doc(sessionSnapshotId)
-      .set({
+  const sessionSnapshot = {
         id: sessionSnapshotId,
         studentId,
         sessionId,
@@ -284,14 +288,15 @@ export async function persistSessionEvidence(
         rawMetrics: metrics ? serializeMetrics(metrics) : null,
         excludedForSystemError: sessionScore.excludedForSystemError,
         profileBaselineScore,
+        // Unlike `generatedAt`, this is immutable across recomputation. It
+        // identifies the first contribution regardless of which session gets
+        // recomputed first, so A→B→A and B→A→B replay from one anchor.
+        profileBaselineCapturedAt:
+          profileBaseline.capturedAt ?? FieldValue.serverTimestamp(),
         scoringVersion: SCORING_VERSION,
-        generatedAt: FieldValue.serverTimestamp(),
-      }),
-
-    adminDb
-      .collection('independenceSnapshots')
-      .doc(profileSnapshotId)
-      .set({
+    generatedAt: FieldValue.serverTimestamp(),
+  };
+  const profileSnapshot = {
         id: profileSnapshotId,
         studentId,
         sessionId: null,
@@ -312,14 +317,43 @@ export async function persistSessionEvidence(
         componentDetail: serializeComponentDetail(profile.components),
         rawMetrics: null,
         scoringVersion: SCORING_VERSION,
-        generatedAt: FieldValue.serverTimestamp(),
-      }),
-  ];
+    generatedAt: FieldValue.serverTimestamp(),
+  };
+  const masteryRecords = buildMasteryRecords(studentId, allMetrics);
 
-  const masteryWrite = buildMasteryWrite(studentId, allMetrics);
-  if (masteryWrite) writes.push(masteryWrite);
-
-  await Promise.all(writes);
+  // The score snapshots and mastery state are educational state too.  Compute
+  // their deterministic contents before this point, then make their actual
+  // Firestore commit conditional on the session still being active.
+  type SnapshotWriter = {
+    set: (
+      ref: FirebaseFirestore.DocumentReference,
+      data: Record<string, unknown>,
+      options?: { merge: boolean },
+    ) => unknown;
+  };
+  const writeSnapshots = (transaction: SnapshotWriter) => {
+    transaction.set(
+      adminDb.collection('independenceSnapshots').doc(sessionSnapshotId),
+      sessionSnapshot,
+    );
+    transaction.set(
+      adminDb.collection('independenceSnapshots').doc(profileSnapshotId),
+      profileSnapshot,
+    );
+    for (const record of masteryRecords) {
+      transaction.set(record.ref, record.data, { merge: true });
+    }
+  };
+  if (options.requireActiveSession) {
+    await runWhileSessionActive(sessionId, writeSnapshots);
+  } else {
+    const batch = adminDb.batch();
+    writeSnapshots({
+      set: (ref, data, options) =>
+        options ? batch.set(ref, data, options) : batch.set(ref, data),
+    });
+    await batch.commit();
+  }
 
   return { sessionScore, profile, sessionSnapshotId, profileSnapshotId };
 }
@@ -347,7 +381,12 @@ async function computeProfileWithPerSessionCap(
       const value = snapshot.exists
         ? (snapshot.data() as Record<string, unknown>).profileBaselineScore
         : null;
-      return { sessionId: metrics.sessionId, value: typeof value === 'number' ? value : null };
+      const data = (snapshot.data() ?? {}) as Record<string, unknown>;
+      return {
+        sessionId: metrics.sessionId,
+        value: typeof value === 'number' ? value : null,
+        capturedAt: toDate(data.profileBaselineCapturedAt ?? data.generatedAt)?.getTime() ?? null,
+      };
     }),
   );
 
@@ -355,13 +394,15 @@ async function computeProfileWithPerSessionCap(
     const byTime = (left.occurredAt?.getTime() ?? 0) - (right.occurredAt?.getTime() ?? 0);
     return byTime !== 0 ? byTime : left.sessionId.localeCompare(right.sessionId);
   });
-  const baselinesBySession = new Map(snapshotBaselines.map(({ sessionId, value }) => [sessionId, value]));
-  // The first session in the canonical order owns the profile state that
-  // existed before this evidence set. Later per-session baselines describe an
-  // intermediate replay state and must not replace that anchor.
-  let prior = ordered
-    .map((metrics) => baselinesBySession.get(metrics.sessionId))
-    .find((value): value is number => typeof value === 'number') ?? fallbackBaseline;
+  // The earliest contribution owns the pre-evidence profile state. Canonical
+  // session order is deliberately unrelated: a later-dated session may be
+  // persisted first, which is exactly the B→A→B replay regression.
+  const earliestBaseline = snapshotBaselines
+    .filter((entry): entry is typeof entry & { value: number; capturedAt: number } =>
+      typeof entry.value === 'number' && typeof entry.capturedAt === 'number',
+    )
+    .sort((left, right) => left.capturedAt - right.capturedAt)[0]?.value;
+  let prior = earliestBaseline ?? fallbackBaseline;
 
   let profile = computeIndependenceProfile([], prior);
   for (let index = 0; index < ordered.length; index += 1) {
@@ -380,14 +421,14 @@ async function computeProfileWithPerSessionCap(
  * accurate only while being guided has not yet mastered the topic, and a single
  * blended accuracy figure would hide exactly that.
  */
-function buildMasteryWrite(
+function buildMasteryRecords(
   studentId: string,
   allMetrics: SessionMetrics[],
-): Promise<unknown> | null {
+): Array<{ ref: FirebaseFirestore.DocumentReference; data: Record<string, unknown> }> {
   const scorable = allMetrics.filter(
     (metrics) => !metrics.endedWithSystemError && metrics.topic && metrics.subject,
   );
-  if (scorable.length === 0) return null;
+  if (scorable.length === 0) return [];
 
   // One record per subject and topic, so the id is deterministic and the rule can
   // stay a simple ownership check.
@@ -399,7 +440,7 @@ function buildMasteryWrite(
     else groups.set(key, [metrics]);
   }
 
-  const batch = adminDb.batch();
+  const records: Array<{ ref: FirebaseFirestore.DocumentReference; data: Record<string, unknown> }> = [];
 
   for (const [, group] of groups) {
     const subject = group[0].subject!;
@@ -432,9 +473,9 @@ function buildMasteryWrite(
       ),
     );
 
-    batch.set(
-      adminDb.collection('masteryRecords').doc(recordId),
-      {
+    records.push({
+      ref: adminDb.collection('masteryRecords').doc(recordId),
+      data: {
         id: recordId,
         studentId,
         subject,
@@ -455,9 +496,8 @@ function buildMasteryWrite(
         scoringVersion: SCORING_VERSION,
         updatedAt: FieldValue.serverTimestamp(),
       },
-      { merge: true },
-    );
+    });
   }
 
-  return batch.commit();
+  return records;
 }

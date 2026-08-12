@@ -12,6 +12,7 @@ import {
   isFullSolutionAllowedThisTurn,
   parseIntentAnalysis,
   parseTutorResponse,
+  studentVisibleTutorText,
 } from '@/lib/types/ai/model-output';
 import { verifyRequest } from '@/lib/firebase/verify-request';
 import { adminDb } from '@/lib/firebase/admin';
@@ -32,6 +33,7 @@ import {
 import { persistSessionEvidence } from '@/lib/scoring/server';
 import { composeSafetyResponse, messageWithReviewStatus } from '@/lib/safety/response';
 import { recordSafetyEvent } from '@/lib/safety/safety-event';
+import { SessionClosedDuringRequestError, runWhileSessionActive } from '@/lib/session/active-session';
 import {
   RATE_LIMITS,
   checkRateLimit,
@@ -288,7 +290,7 @@ Action: ${responsePlan.action}`;
       policy.referenceAnswer ??
       deriveTrustedReferenceAnswer(policy.originalProblem, policy.subject);
     let semanticResult = validateSemanticDisclosure({
-      messageMarkdown: tutorParse.value.messageMarkdown,
+      messageMarkdown: studentVisibleTutorText(tutorParse.value),
       referenceAnswer: trustedReferenceAnswer,
       subject: policy.subject,
       fullSolutionAllowedThisTurn: isFullSolutionAllowedThisTurn(responsePlan),
@@ -298,7 +300,7 @@ Action: ${responsePlan.action}`;
       const judgeResult = await judgeSemanticDisclosure({
         problem: policy.originalProblem,
         referenceAnswer: trustedReferenceAnswer,
-        candidateResponse: tutorParse.value.messageMarkdown,
+        candidateResponse: studentVisibleTutorText(tutorParse.value),
         responsePlan: {
           action: responsePlan.action,
           allowedHintLevel: responsePlan.allowedHintLevel,
@@ -323,7 +325,16 @@ Action: ${responsePlan.action}`;
       policy.language,
       shouldWithholdForDisclosure(isFullSolutionAllowedThisTurn(responsePlan), semanticResult),
     );
-    const tutorData: TutorResponse = enforcement.response;
+    // Tags are model-internal routing hints, never a student API field or a
+    // student-readable transcript field. Retain them only in local server
+    // memory for an optional transfer-generation prompt below.
+    const modelInternalConceptTags = enforcement.messageWithheld
+      ? []
+      : tutorParse.value.internalConceptTags;
+    const tutorData: TutorResponse = {
+      ...enforcement.response,
+      internalConceptTags: [],
+    };
 
     if (enforcement.violations.length > 0) {
       console.warn(
@@ -345,7 +356,16 @@ Action: ${responsePlan.action}`;
     // was actually delivered. A withheld response is a generic request for the
     // student's work, never an educational rung or a transfer-task issue.
     const deliveredResponsePlan = enforcement.messageWithheld
-      ? { ...responsePlan, allowedHintLevel: 0 as const, generateTransferProblem: false }
+      ? {
+          ...responsePlan,
+          action: 'ask_for_attempt' as const,
+          allowedHintLevel: 0 as const,
+          mayRevealFinalAnswer: false,
+          requiresStudentResponse: true,
+          requiresExplanation: false,
+          requiresVerification: false,
+          generateTransferProblem: false,
+        }
       : responsePlan;
     const latencyMs = Date.now() - startedAt;
 
@@ -356,8 +376,10 @@ Action: ${responsePlan.action}`;
     const nextSequence = transcript.length + 1;
     const turnRef = adminDb.collection('sessionTurns').doc();
 
-    await Promise.all([
-      turnRef.set({
+    await commitActiveTutorTurn({
+      sessionId,
+      turnRef,
+      turn: {
         id: turnRef.id,
         sessionId,
         studentId: auth.uid,
@@ -395,12 +417,9 @@ Action: ${responsePlan.action}`;
           category: intentData.safetyCategory,
           action: responsePlan.action,
         },
-      }),
-      adminDb.collection('learningSessions').doc(sessionId).update({
-        currentHintLevel: persistedHintLevel,
-        updatedAt: FieldValue.serverTimestamp(),
-      }),
-    ]);
+      },
+      persistedHintLevel,
+    });
 
     // Learning evidence. Everything below is server-authored: §56.4 forbids the
     // client writing a score, and a client that could author its own rubric
@@ -417,6 +436,7 @@ Action: ${responsePlan.action}`;
       policy,
       responsePlan: deliveredResponsePlan,
       tutorData,
+      internalConceptTags: modelInternalConceptTags,
       transcriptTurns: transcript,
     });
 
@@ -439,6 +459,13 @@ Action: ${responsePlan.action}`;
   } catch (error: any) {
     console.error('Chat error:', error);
 
+    if (error instanceof SessionClosedDuringRequestError) {
+      return NextResponse.json(
+        { error: 'This session was completed before the tutoring response could be saved.' },
+        { status: 409 },
+      );
+    }
+
     // §56.4: a session that failed with a system error is excluded from scoring
     // entirely, not scored as abandonment. That only works if the failure is
     // recorded, so the flag is written here rather than inferred later.
@@ -449,6 +476,27 @@ Action: ${responsePlan.action}`;
     // Internal messages can leak configuration detail, so they stay in the log.
     return NextResponse.json({ error: 'Failed to generate a response.' }, { status: 500 });
   }
+}
+
+/**
+ * Commits the visible assistant turn and its hint-ladder mutation together. The
+ * early policy read is intentionally not reused as authorization here: only the
+ * transaction's read is adjacent to the writes it protects.
+ */
+async function commitActiveTutorTurn(input: {
+  sessionId: string;
+  turnRef: FirebaseFirestore.DocumentReference;
+  turn: Record<string, unknown>;
+  persistedHintLevel: number;
+}): Promise<void> {
+  await runWhileSessionActive(input.sessionId, (transaction) => {
+    transaction.set(input.turnRef, input.turn);
+    const sessionRef = adminDb.collection('learningSessions').doc(input.sessionId);
+    transaction.update(sessionRef, {
+      currentHintLevel: input.persistedHintLevel,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
 }
 
 async function markSessionSystemError(sessionId: string): Promise<void> {
@@ -622,6 +670,8 @@ interface EvidenceInput {
   policy: ResolvedPolicyInputs;
   responsePlan: TutorResponsePlan;
   tutorData: TutorResponse;
+  /** Model-only tags retained transiently; never returned or persisted to turns. */
+  internalConceptTags: string[];
   transcriptTurns: TranscriptTurn[];
 }
 
@@ -736,6 +786,7 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
         },
         available,
         modelName,
+        requireActiveSession: true,
         transfer: {
           outcome: outcome.outcome,
           correctnessSource: outcome.correctnessSource,
@@ -744,9 +795,11 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
         },
       });
 
-      await adminDb.collection('transferProblems').doc(pendingTransfer.id).update({
-        status: 'evaluated',
-        evaluatedAt: FieldValue.serverTimestamp(),
+      await runWhileSessionActive(input.sessionId, (transaction) => {
+        transaction.update(adminDb.collection('transferProblems').doc(pendingTransfer.id), {
+          status: 'evaluated',
+          evaluatedAt: FieldValue.serverTimestamp(),
+        });
       });
       summary.transferEvaluated = true;
       summary.attemptEvaluated = available;
@@ -777,6 +830,7 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
         evaluation: evaluation.evaluation,
         available: evaluation.available,
         modelName: evaluation.modelName,
+        requireActiveSession: true,
       });
       summary.attemptEvaluated = evaluation.available;
     }
@@ -788,12 +842,12 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
         problem: input.policy.originalProblem,
         topic: input.responsePlan.learningObjective,
         grade: input.policy.grade,
-        conceptTags: input.tutorData.internalConceptTags ?? [],
+        conceptTags: input.internalConceptTags,
       });
 
       if (generated) {
         const ref = adminDb.collection('transferProblems').doc();
-        await ref.set({
+        await runWhileSessionActive(input.sessionId, (transaction) => transaction.set(ref, {
           id: ref.id,
           sessionId: input.sessionId,
           studentId: input.studentId,
@@ -809,7 +863,7 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
           status: 'issued',
           modelName: generated.modelName,
           createdAt: FieldValue.serverTimestamp(),
-        });
+        }));
         summary.transferIssued = true;
         summary.transferProblem = {
           id: ref.id,
@@ -821,6 +875,7 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
       }
     }
   } catch (error) {
+    if (error instanceof SessionClosedDuringRequestError) throw error;
     // Evidence collection is best-effort by design. Its absence lowers coverage
     // and shows in the instrumentation-health metric, which is the honest record;
     // failing the turn would punish the student for a server-side fault.
@@ -831,11 +886,14 @@ async function recordLearningEvidence(input: EvidenceInput): Promise<EvidenceSum
   }
 
   try {
-    const persisted = await persistSessionEvidence(input.studentId, input.sessionId);
+    const persisted = await persistSessionEvidence(input.studentId, input.sessionId, {
+      requireActiveSession: true,
+    });
     summary.score = persisted.sessionScore.rawScore;
     summary.coverage = persisted.sessionScore.coverage;
     summary.suppressed = persisted.sessionScore.displaySuppressed;
   } catch (error) {
+    if (error instanceof SessionClosedDuringRequestError) throw error;
     console.error(
       'Failed to persist independence snapshot:',
       error instanceof Error ? error.message : 'unknown error',

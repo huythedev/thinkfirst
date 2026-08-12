@@ -5,6 +5,7 @@ import {
   isFullSolutionAllowedThisTurn,
   parseIntentAnalysis,
   parseTutorResponse,
+  studentVisibleTutorText,
 } from '@/lib/types/ai/model-output';
 import type { TutorResponse, TutorResponsePlan } from '@/lib/types/ai/schema';
 
@@ -63,6 +64,13 @@ function plan(overrides: Partial<TutorResponsePlan> = {}): TutorResponsePlan {
 
 function response(overrides: Partial<TutorResponse> = {}): TutorResponse {
   return { ...(validTutorResponse as TutorResponse), ...overrides };
+}
+
+function expectNoStudentVisibleLeak(tutorData: TutorResponse, forbiddenForms: string[]): void {
+  const delivered = studentVisibleTutorText(tutorData);
+  for (const forbidden of forbiddenForms) {
+    expect(delivered).not.toContain(forbidden);
+  }
 }
 
 describe('parseTutorResponse', () => {
@@ -182,6 +190,47 @@ describe('isFullSolutionAllowedThisTurn', () => {
 });
 
 describe('enforceResponsePlan', () => {
+  it.each([
+    ['studentActionRequired', { studentActionRequired: 'Write x = 4.' }],
+    ['checkForUnderstanding', { checkForUnderstanding: 'Is your final answer x = 4?' }],
+    ['confidenceStatement', { confidenceStatement: 'The correct solution is definitely x = 4.' }],
+    ['learningObjective', { learningObjective: 'Reach the final solution x = 4.' }],
+  ] as const)('withholds an answer smuggled through %s', (_field, leak) => {
+    const result = enforceResponsePlan(
+      response({ messageMarkdown: 'Try isolating the variable.', ...leak }),
+      plan({ action: 'ask_for_attempt', allowedHintLevel: 0 }),
+      'en',
+      true,
+    );
+
+    expect(result.messageWithheld).toBe(true);
+    expectNoStudentVisibleLeak(result.response, ['x = 4']);
+    expect(result.response.internalConceptTags).toEqual([]);
+  });
+
+  it('constructs a fully deterministic response when multiple model fields leak', () => {
+    const result = enforceResponsePlan(
+      response({
+        messageMarkdown: 'Try isolating the variable.',
+        studentActionRequired: 'Write x = 4.',
+        checkForUnderstanding: 'Is your answer x = 4?',
+        confidenceStatement: 'The answer is x = 4.',
+        learningObjective: 'Get x = 4.',
+        internalConceptTags: ['x = 4'],
+      }),
+      plan({ action: 'ask_for_attempt', allowedHintLevel: 0 }),
+      'en',
+      true,
+    );
+
+    expect(result.messageWithheld).toBe(true);
+    expectNoStudentVisibleLeak(result.response, ['x = 4']);
+    expect(result.response).toMatchObject({
+      responseType: 'question', hintLevel: 0, finalAnswerIncluded: false,
+      checkForUnderstanding: null, confidenceStatement: null,
+      learningObjective: null, internalConceptTags: [],
+    });
+  });
   it('passes a compliant response through untouched', () => {
     const result = enforceResponsePlan(response({ hintLevel: 2 }), plan({ allowedHintLevel: 2 }));
     expect(result.violations).toEqual([]);
