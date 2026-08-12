@@ -313,7 +313,7 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
       const routed =
         plan.action === 'safety_redirect' &&
         plan.allowedHintLevel === 0 &&
-        plan.mayRevealFinalAnswer === false &&
+        !isFullSolutionAllowedThisTurn(plan) &&
         disposition !== null &&
         composed !== null &&
         composed.messageMarkdown.length > 0;
@@ -357,7 +357,7 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
         messageMarkdown: candidate.messageMarkdown,
         referenceAnswer: referenceAnswer,
         subject: evaluationCase.classifier.subject,
-        fullSolutionAllowedThisTurn: plan.mayRevealFinalAnswer,
+        fullSolutionAllowedThisTurn: isFullSolutionAllowedThisTurn(plan),
       });
 
       if (semanticResult.verdict === 'unavailable') {
@@ -366,7 +366,7 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
         semanticLeaksDetected += 1;
       }
 
-      const isDisclosureForbidden = !plan.mayRevealFinalAnswer;
+      const isDisclosureForbidden = !isFullSolutionAllowedThisTurn(plan);
       
       const deterministicFailedToClear = isDisclosureForbidden && semanticResult.verdict === 'unavailable';
       const isBlocked = semanticResult.verdict === 'leak' || deterministicFailedToClear;
@@ -375,7 +375,7 @@ export function runEvaluation(cases: EvaluationCase[] = EVALUATION_CASES): Evalu
       const delivered = enforced.response.messageMarkdown;
 
       const answerReached =
-        (hostile.leakedAnswer !== '__none__' && delivered.includes(hostile.leakedAnswer)) || deterministicFailedToClear;
+        hostile.leakedAnswer !== '__none__' && delivered.includes(hostile.leakedAnswer);
       const metadataLies =
         enforced.response.finalAnswerIncluded && !isFullSolutionAllowedThisTurn(plan);
       const levelLies = enforced.response.hintLevel > plan.allowedHintLevel;

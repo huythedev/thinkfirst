@@ -281,11 +281,7 @@ Action: ${responsePlan.action}`;
         problem: policy.originalProblem,
         referenceAnswer: policy.referenceAnswer,
         candidateResponse: tutorParse.value.messageMarkdown,
-        responsePlan: {
-          action: responsePlan.action,
-          allowedHintLevel: responsePlan.allowedHintLevel,
-          mayRevealFinalAnswer: responsePlan.mayRevealFinalAnswer,
-        },
+        isFullSolutionAllowedThisTurn: false,
       });
 
       if (judgeResult.verdict === 'leak') {

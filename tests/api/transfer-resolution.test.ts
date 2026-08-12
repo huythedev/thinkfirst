@@ -2,12 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { resolveTransferOutcome } from '@/lib/session/evaluation';
 
 describe('Transfer Outcome Resolution', () => {
-  it('correct transfer produces independent_correct', () => {
-    // 10. correct transfer produces independent_correct
+  it('deterministic correct answer cannot be overridden by Gemini', () => {
     const outcome = resolveTransferOutcome({
       studentAnswer: 'x=4',
       referenceAnswer: 'x = 4',
-      evaluatorCorrectness: null,
+      evaluatorCorrectness: 0.0,
       hintDelta: 0,
     });
     expect(outcome.outcome).toBe('independent_correct');

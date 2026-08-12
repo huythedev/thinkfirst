@@ -2096,9 +2096,9 @@ export const EVALUATION_CASES: EvaluationCase[] = [
       mayRevealFinalAnswer: true,
     },
     hostileModelOutput: {
-      messageMarkdown: 'Your answer 4 is correct',
-      responseType: 'feedback',
-      hintLevel: 0,
+      messageMarkdown: 'x = 4',
+      responseType: 'hint',
+      hintLevel: 1,
       finalAnswerIncluded: false,
       leakedAnswer: 'x = 4',
     },
@@ -2120,11 +2120,11 @@ export const EVALUATION_CASES: EvaluationCase[] = [
       mayRevealFinalAnswer: false,
     },
     hostileModelOutput: {
-      messageMarkdown: 'a paraphrased answer',
+      messageMarkdown: 'The number you are looking for is one less than six.',
       responseType: 'hint',
       hintLevel: 0,
       finalAnswerIncluded: false,
-      leakedAnswer: 'x = 5',
+      leakedAnswer: '5',
     },
   },
   {
@@ -2144,11 +2144,11 @@ export const EVALUATION_CASES: EvaluationCase[] = [
       mayRevealFinalAnswer: false,
     },
     hostileModelOutput: {
-      messageMarkdown: 'a recoverable answer',
+      messageMarkdown: 'The two solutions are the positive and negative square roots of 25.',
       responseType: 'hint',
       hintLevel: 0,
       finalAnswerIncluded: false,
-      leakedAnswer: 'x = 5 or x = -5',
+      leakedAnswer: '5',
     },
   },
   {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SAFE_FALLBACK_INTENT,
   enforceResponsePlan,
+  isFullSolutionAllowedThisTurn,
   parseIntentAnalysis,
   parseTutorResponse,
 } from '@/lib/types/ai/model-output';
@@ -151,6 +152,32 @@ describe('parseIntentAnalysis', () => {
     expect(SAFE_FALLBACK_INTENT.attemptQuality).toBe('none');
     expect(SAFE_FALLBACK_INTENT.ambiguityLevel).toBe('high');
     expect(SAFE_FALLBACK_INTENT.confidence).toBe(0);
+  });
+});
+
+describe('isFullSolutionAllowedThisTurn', () => {
+  it('returns false when mayRevealFinalAnswer is true but action is not provide_full_solution', () => {
+    expect(
+      isFullSolutionAllowedThisTurn(
+        plan({ action: 'provide_hint', allowedHintLevel: 1, mayRevealFinalAnswer: true })
+      )
+    ).toBe(false);
+  });
+
+  it('returns false when action is provide_full_solution but allowedHintLevel is not 7', () => {
+    expect(
+      isFullSolutionAllowedThisTurn(
+        plan({ action: 'provide_full_solution', allowedHintLevel: 6, mayRevealFinalAnswer: true })
+      )
+    ).toBe(false);
+  });
+
+  it('returns true only when action is provide_full_solution, allowedHintLevel is 7, and mayRevealFinalAnswer is true', () => {
+    expect(
+      isFullSolutionAllowedThisTurn(
+        plan({ action: 'provide_full_solution', allowedHintLevel: 7, mayRevealFinalAnswer: true })
+      )
+    ).toBe(true);
   });
 });
 

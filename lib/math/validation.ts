@@ -150,18 +150,36 @@ export function normalizeAnswer(input: string): string | null {
   // Drop repeated assignments in compounds, e.g. "2 or x = 3" -> "2 or 3"
   text = text.replace(/\bor\s+[A-Za-z_][A-Za-z0-9_]*\s*=\s*/g, 'or ');
   
-  // Set notation like {2, 3} -> 2, 3 or (2, 3).
-  text = text.replace(/\\in\s*/, '');
-  text = text.replace(/\{([^}]+)\}/g, '$1');
-  text = text.replace(/∈\s*/, '');
-  text = text.replace(/,/g, ' or ');
+  // Thousands separators between digits only, e.g. "1,234" or "12,500".
+  let previousThousands: string;
+  do {
+    previousThousands = text;
+    text = text.replace(/(\d),(\d{3})(?!\d)/g, '$1$2');
+  } while (text !== previousThousands);
+
+  // Set notation like {2, 3} -> convert commas inside braces to 'or', then unwrap braces.
+  text = text.replace(/\\in\s*/g, '');
+  text = text.replace(/∈\s*/g, '');
+  text = text.replace(/\{([^}]+)\}/g, (_, inner) => inner.replace(/,/g, ' or '));
   text = text.replace(/\bhoac\b/gi, 'or');
   text = text.replace(/\bhoặc\b/gi, 'or');
   text = text.replace(/\.$/, '');
 
-  // Thousands separators between digits only, so "1,234" collapses but "1,2" as a
-  // coordinate pair is left alone to be refused later.
-  text = text.replace(/(\d),(\d{3})(?!\d)/g, '$1$2');
+  // Convert commas outside parentheses to 'or' (e.g. for "x = 2, x = 3" or "2, 3" but not inside functions like min(2, 3)).
+  let inParen = 0;
+  let newText = '';
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '(' || char === '[') inParen++;
+    else if (char === ')' || char === ']') inParen = Math.max(0, inParen - 1);
+
+    if (char === ',' && inParen === 0) {
+      newText += ' or ';
+    } else {
+      newText += char;
+    }
+  }
+  text = newText;
 
   // Percentages become their fractional value.
   text = text.replace(/([0-9.]+)\s*%/g, '($1/100)');
@@ -414,15 +432,6 @@ export function validateAnswer(studentAnswer: string, referenceAnswer: string): 
       verdict: 'equivalent',
       confidence: 1,
       detail: 'The answer matches the reference answer exactly.',
-      method: 'text',
-    };
-  }
-
-  if (studentText === 'a paraphrased answer' || studentText === 'a recoverable answer') {
-    return {
-      verdict: 'equivalent',
-      confidence: 1,
-      detail: 'The answer is a paraphrased or recoverable reference answer.',
       method: 'text',
     };
   }

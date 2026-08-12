@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { MIN_SESSION_COVERAGE_TO_DISPLAY } from '@/lib/scoring/independence';
 import {
   createSession,
   createStudent,
@@ -104,6 +105,8 @@ test.describe('Scenario A: student asks for a direct answer', () => {
     const beforeScoreDoc = await queryCollection('independenceSnapshots');
     const beforeSession = beforeScoreDoc.find(s => (s.kind as any)?.stringValue === 'session' && (s.sessionId as any)?.stringValue === sessionId);
     const coverageBefore = beforeSession ? ((beforeSession.coverage as any)?.doubleValue ?? (beforeSession.coverage as any)?.integerValue ?? 0) : 0;
+    const scoreBefore = beforeSession ? ((beforeSession.rawScore as any)?.doubleValue ?? (beforeSession.rawScore as any)?.integerValue ?? null) : null;
+    const suppressedBefore = beforeSession ? ((beforeSession.displaySuppressed as any)?.booleanValue ?? true) : true;
 
     const response = await sendTurn(request, student, sessionId, 'Just tell me the final answer. I tried factoring it first.');
     expect(response.status).toBe(200);
@@ -181,10 +184,38 @@ test.describe('Scenario A: student asks for a direct answer', () => {
     const afterScoreDoc = await queryCollection('independenceSnapshots');
     const afterSession = afterScoreDoc.find(s => (s.kind as any)?.stringValue === 'session' && (s.sessionId as any)?.stringValue === sessionId);
     const coverageAfter = afterSession ? ((afterSession.coverage as any)?.doubleValue ?? (afterSession.coverage as any)?.integerValue ?? 0) : 0;
-    const isSuppressed = (liveScore.displaySuppressed as any)?.booleanValue;
     
-    // According to real scoring rules: coverage increases and the score is recomputed OR coverage remains insufficient and display remains suppressed
-    const validOutcome = coverageAfter > coverageBefore || isSuppressed === true;
+    // Explicitly check for null vs number; a missing rawScore is null, not 0.
+    const rawScoreVal = afterSession ? (afterSession.rawScore as any) : null;
+    let scoreAfter: number | null = null;
+    if (rawScoreVal) {
+      if (rawScoreVal.nullValue !== undefined) scoreAfter = null;
+      else if (rawScoreVal.doubleValue !== undefined) scoreAfter = rawScoreVal.doubleValue;
+      else if (rawScoreVal.integerValue !== undefined) scoreAfter = rawScoreVal.integerValue;
+    }
+    
+    const suppressedAfter = afterSession ? ((afterSession.displaySuppressed as any)?.booleanValue ?? true) : true;
+    
+    let validOutcome = false;
+    if (coverageAfter > coverageBefore) {
+       // Outcome A: new evidence increases coverage
+       // Prove scoring was actually recomputed consistently with new evidence
+       expect(coverageAfter).toBeGreaterThan(coverageBefore);
+       expect(scoreAfter).not.toBeNull();
+       
+       if (coverageAfter >= MIN_SESSION_COVERAGE_TO_DISPLAY) {
+         expect(suppressedAfter).toBe(false);
+         expect(typeof scoreAfter).toBe('number');
+       } else {
+         expect(suppressedAfter).toBe(true);
+       }
+       validOutcome = true;
+    } else if (coverageAfter < MIN_SESSION_COVERAGE_TO_DISPLAY) {
+       // Outcome B: evidence remains insufficient
+       expect(suppressedAfter).toBe(true);
+       validOutcome = true;
+    }
+    
     expect(validOutcome).toBe(true);
   });
 });
