@@ -393,7 +393,7 @@ export default function LearningWorkspace() {
                     turn.actor === 'student'
                       ? 'bg-blue-600 text-white rounded-br-none'
                       : isSupport
-                        ? 'bg-background border border-amber-300 text-amber-950 rounded-bl-none'
+                        ? 'bg-amber-50 border border-amber-300 text-amber-950 dark:bg-slate-800 dark:text-amber-100 dark:border-amber-700 rounded-bl-none'
                         : 'bg-slate-100 text-slate-900 border border-slate-200 dark:bg-slate-800 dark:text-slate-50 dark:border-slate-700 rounded-bl-none'
                   }`}
                   // Announced immediately: this is the one message a student must
@@ -411,16 +411,16 @@ export default function LearningWorkspace() {
                         </p>
                       )}
                       {isSupport && (
-                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-800 mb-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300 mb-2">
                           Support
                         </p>
                       )}
-                      <TutorMarkdown>{turn.content}</TutorMarkdown>
+                      <TutorMarkdown variant="chat">{turn.content}</TutorMarkdown>
                       {turn.safetyMetadata?.flaggedForTeacherReview && (
                         // Stated rather than hidden: section 24 forbids promising
                         // secrecy, and staying silent about the flag would be an
                         // implied promise.
-                        <p className="text-xs text-amber-800 mt-3 pt-3 border-t border-amber-200">
+                        <p className="text-xs text-amber-800 dark:text-amber-200 mt-3 pt-3 border-t border-amber-200 dark:border-amber-700">
                           A teacher at your school has been told you may want to talk. Your
                           classmates cannot see this.
                         </p>

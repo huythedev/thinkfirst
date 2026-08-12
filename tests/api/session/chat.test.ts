@@ -222,6 +222,30 @@ describe('POST /api/session/chat', () => {
     expect(modelSpy).toHaveBeenCalledTimes(2);
   });
 
+  test.each([
+    ['linear answer', 'x = 4', 'Solve for x: 2x = 8', 'x = 4'],
+    ['quadratic answer', 'x = 3 ± sqrt(2)', 'x^2 - 6x + 7 = 0', 'x = 3 - sqrt(2) or x = 3 + sqrt(2)'],
+  ])('deterministically withholds an explicit symbolic %s without invoking Gemini', async (_name, messageMarkdown, originalProblem, referenceAnswer) => {
+    mockPolicy = { ...mockPolicy, originalProblem, referenceAnswer };
+    modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({
+        messageMarkdown,
+        responseType: 'hint',
+        hintLevel: 1,
+        finalAnswerIncluded: false,
+        internalConceptTags: [],
+      }),
+    });
+
+    const res = await POST(validRequest());
+    const data = await res.json();
+
+    expect(data.tutorData.messageMarkdown).not.toContain(messageMarkdown);
+    expect(data.tutorData.messageMarkdown).toContain('I’ll keep the answer back');
+    expect(modelSpy).toHaveBeenCalledTimes(2);
+  });
+
   test('no trusted reference with a direct leak is withheld without invoking a judge', async () => {
     mockPolicy.referenceAnswer = undefined;
     modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
@@ -288,6 +312,54 @@ describe('POST /api/session/chat', () => {
     
     expect(data.tutorData.messageMarkdown).toContain('I’ll keep the answer back');
     expect(modelSpy).toHaveBeenCalledTimes(3);
+  });
+
+  test.each([
+    ['English word-only answer', 'The answer is four.', 'Solve for x: 2x = 8', 'x = 4'],
+    ['Vietnamese word-only answer', 'Nghiệm là bốn.', 'Giải phương trình: 2x = 8', 'x = 4'],
+    ['word-only quadratic roots', 'Hai nghiệm là ba trừ căn hai và ba cộng căn hai.', 'x^2 - 6x + 7 = 0', 'x = 3 - sqrt(2) or x = 3 + sqrt(2)'],
+  ])('%s is judged and withheld rather than bypassing disclosure validation', async (_name, messageMarkdown, originalProblem, referenceAnswer) => {
+    mockPolicy = { ...mockPolicy, originalProblem, referenceAnswer };
+    modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({
+        messageMarkdown,
+        responseType: 'hint',
+        hintLevel: 1,
+        finalAnswerIncluded: false,
+        internalConceptTags: [],
+      }),
+    });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({ verdict: 'leak', confidence: 0.99, reasonCode: 'exact_answer' }),
+    });
+
+    const res = await POST(validRequest());
+    const data = await res.json();
+
+    expect(data.tutorData.messageMarkdown).not.toContain(messageMarkdown);
+    expect(data.tutorData.messageMarkdown).toContain('I’ll keep the answer back');
+    expect(modelSpy).toHaveBeenCalledTimes(3);
+  });
+
+  test('a safe conceptual English hint is delivered without a fallback', async () => {
+    mockPolicy = { ...mockPolicy, originalProblem: 'Solve for x: 2x = 8', referenceAnswer: 'x = 4' };
+    modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({
+        messageMarkdown: 'What type of equation is this?',
+        responseType: 'question',
+        hintLevel: 1,
+        finalAnswerIncluded: false,
+        internalConceptTags: [],
+      }),
+    });
+
+    const res = await POST(validRequest());
+    const data = await res.json();
+
+    expect(data.tutorData.messageMarkdown).toBe('What type of equation is this?');
+    expect(modelSpy).toHaveBeenCalledTimes(2);
   });
 
   test('C. semantic judge uncertain blocks', async () => {
@@ -412,6 +484,29 @@ describe('POST /api/session/chat', () => {
     const res = await POST(validRequest());
     const data = await res.json();
     
+    expect(data.tutorData.messageMarkdown).toContain('Let’s start with one very small step');
+    expect(modelSpy).toHaveBeenCalledTimes(3);
+  });
+
+  test.each([
+    ['safe verdict with leak code', { verdict: 'safe', confidence: 0.99, reasonCode: 'exact_answer' }],
+    ['leak verdict with safe code', { verdict: 'leak', confidence: 0.99, reasonCode: 'no_disclosure' }],
+  ])('fails closed for contradictory judge output: %s', async (_name, judgeOutput) => {
+    modelSpy.mockResolvedValueOnce({ text: JSON.stringify(validClassifierOutput) });
+    modelSpy.mockResolvedValueOnce({
+      text: JSON.stringify({
+        messageMarkdown: 'An unusual conceptual observation.',
+        responseType: 'hint',
+        hintLevel: 1,
+        finalAnswerIncluded: false,
+        internalConceptTags: [],
+      }),
+    });
+    modelSpy.mockResolvedValueOnce({ text: JSON.stringify(judgeOutput) });
+
+    const res = await POST(validRequest());
+    const data = await res.json();
+
     expect(data.tutorData.messageMarkdown).toContain('Let’s start with one very small step');
     expect(modelSpy).toHaveBeenCalledTimes(3);
   });

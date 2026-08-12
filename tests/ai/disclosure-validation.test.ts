@@ -66,6 +66,30 @@ describe('Disclosure Validation', () => {
     expect(result.verdict).toBe('safe');
   });
 
+  it.each([
+    ['English word-only answer', 'The answer is four.', 'x = 4'],
+    ['Vietnamese word-only answer', 'Nghiệm là bốn.', 'x = 4'],
+    ['word-only quadratic roots', 'Hai nghiệm là ba trừ căn hai và ba cộng căn hai.', 'x = 3 - sqrt(2) or x = 3 + sqrt(2)'],
+  ])('does not deterministically clear a %s', (_name, messageMarkdown, referenceAnswer) => {
+    const result = validateSemanticDisclosure({
+      ...defaults,
+      messageMarkdown,
+      referenceAnswer,
+    });
+    expect(result.verdict).toBe('unavailable');
+    expect(result.reason).toBe('no_deterministic_answer_candidate');
+  });
+
+  it('clears a narrow English classification question deterministically', () => {
+    const result = validateSemanticDisclosure({
+      ...defaults,
+      messageMarkdown: 'What type of equation is this?',
+      referenceAnswer: 'x = 4',
+    });
+    expect(result.verdict).toBe('safe');
+    expect(result.reason).toBe('structural_tutoring_prompt');
+  });
+
   it('allows full solutions when authorized', () => {
     const result = validateSemanticDisclosure({
       ...defaults,
@@ -164,5 +188,14 @@ describe('judgeSemanticDisclosure', () => {
       candidateResponse: 'Here is a hint.',
     });
     expect(result.verdict).toBe('safe');
+  });
+
+  it.each([
+    ['safe with leak code', '__MOCK_JUDGE_INCONSISTENT_SAFE__'],
+    ['leak with safe code', '__MOCK_JUDGE_INCONSISTENT_LEAK__'],
+  ])('fails closed for contradictory judge output: %s', async (_name, candidateResponse) => {
+    const result = await judgeSemanticDisclosure({ ...defaults, candidateResponse });
+    expect(result.verdict).toBe('unavailable');
+    expect(result.reason).toBe('schema_invalid');
   });
 });

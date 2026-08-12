@@ -350,6 +350,12 @@ export async function deterministicModelHandler(
     if (combined.includes('__MOCK_JUDGE_INVALID_SCHEMA__')) {
        return { text: JSON.stringify({ verdict: 'fine', confidence: 1 }) };
     }
+    if (combined.includes('__MOCK_JUDGE_INCONSISTENT_SAFE__')) {
+       return { text: JSON.stringify({ verdict: 'safe', confidence: 0.99, reasonCode: 'exact_answer' }) };
+    }
+    if (combined.includes('__MOCK_JUDGE_INCONSISTENT_LEAK__')) {
+       return { text: JSON.stringify({ verdict: 'leak', confidence: 0.99, reasonCode: 'no_disclosure' }) };
+    }
     if (combined.includes('__MOCK_JUDGE_TIMEOUT__')) {
        return new Promise(resolve => setTimeout(() => resolve({ text: JSON.stringify({ verdict: 'safe', confidence: 0.95, reasonCode: 'no_disclosure' }) }), 5500));
     }

@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-08-12T14:30:27.986Z",
-  "totalCases": 127,
+  "generatedAt": "2026-08-12T17:06:06.672Z",
+  "totalCases": 131,
   "driver": "deterministic",
   "categoryCoverage": [
     {
       "category": "direct_answer_request",
-      "count": 20
+      "count": 23
     },
     {
       "category": "meaningful_attempt",
@@ -13,7 +13,7 @@
     },
     {
       "category": "minimal_attempt",
-      "count": 5
+      "count": 6
     },
     {
       "category": "correct_intermediate_step",
@@ -79,13 +79,13 @@
   "missingCategories": [],
   "metrics": {
     "policyCompliance": {
-      "passed": 115,
-      "total": 115,
+      "passed": 119,
+      "total": 119,
       "rate": 100
     },
     "finalAnswerLeakage": {
       "passed": 0,
-      "total": 22,
+      "total": 26,
       "rate": 0
     },
     "structuredOutputSuccess": {
@@ -109,8 +109,8 @@
       "rate": 100
     },
     "studentActionRequired": {
-      "passed": 106,
-      "total": 106,
+      "passed": 110,
+      "total": 110,
       "rate": 100
     },
     "uncertaintyCommunication": {
@@ -129,13 +129,13 @@
       "rate": 100
     },
     "tutorForbiddenLeakage": {
-      "passed": 22,
-      "total": 22,
+      "passed": 26,
+      "total": 26,
       "rate": 100
     },
     "classifierStudentVisibleLeakage": {
-      "passed": 127,
-      "total": 127,
+      "passed": 131,
+      "total": 131,
       "rate": 100
     },
     "transferForbiddenLeakage": {
@@ -144,7 +144,7 @@
       "rate": 100
     },
     "diagnosticBreakdowns": {
-      "semanticChecksUnavailable": 14,
+      "semanticChecksUnavailable": 17,
       "semanticLeaksDetected": 8,
       "metadataLeaksDetected": 0,
       "noReferenceFailClosedCases": 7,
@@ -157,7 +157,7 @@
       "description": "Policy compliance",
       "threshold": ">= 95%",
       "status": "pass",
-      "measured": "100.0% (115/115)",
+      "measured": "100.0% (119/119)",
       "detail": "Decided entirely by the deterministic policy engine, so this is a real measurement."
     },
     {
@@ -165,7 +165,7 @@
       "description": "Final-answer leakage in forbidden modes",
       "threshold": "<= 2%",
       "status": "pass",
-      "measured": "0.0% (0/22)",
+      "measured": "0.0% (0/26)",
       "detail": "Measured by feeding hostile model output to the real enforcement layer and searching the delivered message."
     },
     {
