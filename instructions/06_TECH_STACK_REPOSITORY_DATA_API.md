@@ -251,6 +251,7 @@ interface Assignment {
 interface LearningSession {
   id: string;
   studentId: string;
+  scope: "standalone" | "classroom" | "assignment";
   classroomId?: string;
   assignmentId?: string;
   subject: Subject;
@@ -270,6 +271,11 @@ interface LearningSession {
   scoringVersion: string;
 }
 ```
+
+Session provenance is server-authoritative. `standalone` sessions have neither
+`classroomId` nor `assignmentId`; `classroom` sessions have a verified
+`classroomId`; `assignment` sessions have a verified `classroomId` and
+`assignmentId`. Browsers may create only standalone sessions.
 
 ## sessionTurns
 

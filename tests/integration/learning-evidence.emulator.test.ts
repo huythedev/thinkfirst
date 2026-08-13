@@ -269,6 +269,56 @@ describe('persistSessionEvidence writes trusted evidence with real credentials',
     expect(metrics.every((entry) => entry.sessionId !== 'evidence-session-other')).toBe(true);
   });
 
+  it('persists an older requested session from its own evidence beyond the 30-session window', async () => {
+    const studentId = 'evidence-old-target-student';
+    const targetSession = await seedSession({
+      suffix: 'old-target',
+      studentId,
+      hintLevel: 1,
+      withTransfer: 'correct',
+      topic: 'target-topic',
+    });
+    await adminDb.collection('learningSessions').doc(targetSession).update({
+      startedAt: new Date('2025-01-01T10:00:00Z'),
+      completedAt: new Date('2025-01-01T10:30:00Z'),
+    });
+
+    const batch = adminDb.batch();
+    for (let index = 0; index < 30; index += 1) {
+      const newer = adminDb.collection('learningSessions').doc(`evidence-newer-${index}`);
+      batch.set(newer, {
+        studentId,
+        subject: 'mathematics',
+        topic: 'foreign-topic',
+        grade: 8,
+        mode: 'practice',
+        status: 'completed',
+        originalProblem: 'A newer private problem',
+        currentHintLevel: 7,
+        startedAt: new Date(Date.UTC(2026, 0, index + 1, 10)),
+        completedAt: new Date(Date.UTC(2026, 0, index + 1, 10, 30)),
+      });
+    }
+    await batch.commit();
+
+    const result = await scoring.persistSessionEvidence(studentId, targetSession);
+    const stored = await adminDb
+      .collection('independenceSnapshotsInternal')
+      .doc(`${targetSession}__${SCORING_VERSION}`)
+      .get();
+
+    expect(result.sessionScore.sessionId).toBe(targetSession);
+    expect(stored.data()?.sessionId).toBe(targetSession);
+    expect(stored.data()?.rawMetrics).toEqual(
+      expect.objectContaining({
+        sessionId: targetSession,
+        topic: 'target-topic',
+        highestHintUsed: 1,
+        transfer: expect.objectContaining({ outcome: 'independent_correct' }),
+      }),
+    );
+  });
+
   it('writes a mastery record for the topic', async () => {
     const sessionId = await seedSession({
       suffix: 'mastery',

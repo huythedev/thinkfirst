@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "learningSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "classroomId", "order": "ASCENDING" },
+        { "fieldPath": "studentId", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "independenceSnapshots",
       "queryScope": "COLLECTION",
       "fields": [

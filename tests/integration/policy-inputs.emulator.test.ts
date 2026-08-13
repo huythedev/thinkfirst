@@ -57,6 +57,7 @@ async function seedClassroomSession(suffix: string, overrides: Record<string, un
 
   await adminDb.collection('learningSessions').doc(sessionId).set({
     studentId: STUDENT,
+    scope: 'classroom',
     classroomId,
     subject: 'mathematics',
     grade: 8,
@@ -111,7 +112,10 @@ describe('resolvePolicyInputs against the emulator', () => {
       allowFullSolutions: false,
       requireTransferProblem: true,
     });
-    await adminDb.collection('learningSessions').doc(sessionId).update({ assignmentId });
+    await adminDb.collection('learningSessions').doc(sessionId).update({
+      scope: 'assignment',
+      assignmentId,
+    });
 
     const result = await policyInputs.resolvePolicyInputs(sessionId, STUDENT);
     if (result.status !== 'ok') throw new Error('expected ok');
@@ -136,7 +140,10 @@ describe('resolvePolicyInputs against the emulator', () => {
       strictness: 'supportive',
       allowFullSolutions: true,
     });
-    await adminDb.collection('learningSessions').doc(sessionId).update({ assignmentId });
+    await adminDb.collection('learningSessions').doc(sessionId).update({
+      scope: 'assignment',
+      assignmentId,
+    });
 
     const result = await policyInputs.resolvePolicyInputs(sessionId, STUDENT);
     expect(result.status).toBe('forbidden');
@@ -146,6 +153,7 @@ describe('resolvePolicyInputs against the emulator', () => {
     const sessionId = 'int-session-no-classroom-assignment';
     await adminDb.collection('learningSessions').doc(sessionId).set({
       studentId: STUDENT,
+      scope: 'assignment',
       assignmentId: 'int-assignment-no-classroom',
       subject: 'mathematics', mode: 'assignment', status: 'active', currentHintLevel: 0,
     });
@@ -163,8 +171,14 @@ describe('resolvePolicyInputs against the emulator', () => {
       classroomId, allowFullSolutions: true,
     });
     await adminDb.collection('learningSessions').doc(sessionId).set({
-      studentId: STUDENT, classroomId, assignmentId: 'int-assignment-foreign-member',
-      subject: 'mathematics', mode: 'assignment', status: 'active', currentHintLevel: 0,
+      studentId: STUDENT,
+      scope: 'assignment',
+      classroomId,
+      assignmentId: 'int-assignment-foreign-member',
+      subject: 'mathematics',
+      mode: 'assignment',
+      status: 'active',
+      currentHintLevel: 0,
     });
     expect((await policyInputs.resolvePolicyInputs(sessionId, STUDENT)).status).toBe('forbidden');
   });
@@ -179,6 +193,7 @@ describe('resolvePolicyInputs against the emulator', () => {
     const sessionId = 'int-session-soloist';
     await adminDb.collection('learningSessions').doc(sessionId).set({
       studentId: STUDENT,
+      scope: 'standalone',
       subject: 'mathematics',
       grade: 12,
       language: 'en',
@@ -215,6 +230,7 @@ describe('loadTranscript against the emulator', () => {
 
     await adminDb.collection('learningSessions').doc(sessionId).set({
       studentId: STUDENT,
+      scope: 'standalone',
       subject: 'mathematics',
       grade: 8,
       language: 'en',

@@ -6,7 +6,7 @@ import {
   initializeTestEnvironment,
   RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, deleteField, collection, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 /**
@@ -55,6 +55,27 @@ function asTeacherB() {
 }
 function asAnonymous() {
   return testEnv.unauthenticatedContext().firestore();
+}
+
+function standaloneSession(overrides: Record<string, unknown> = {}) {
+  return {
+    studentId: STUDENT_A,
+    scope: 'standalone',
+    subject: 'mathematics',
+    grade: 8,
+    language: 'en',
+    mode: 'practice',
+    strictness: 'balanced',
+    status: 'active',
+    originalProblem: 'Solve 2x = 8',
+    currentHintLevel: 0,
+    nextTurnSequence: 0,
+    revision: 0,
+    startedAt: serverTimestamp(),
+    policyVersion: 'policy-v2',
+    scoringVersion: 'scoring-v2',
+    ...overrides,
+  };
 }
 
 /** Seeds the fixture graph with rules disabled. */
@@ -551,9 +572,8 @@ describe('cross-student session isolation', () => {
     await seed();
     await assertFails(
       setDoc(doc(asStudentB(), 'learningSessions', 'session-forged'), {
+        ...standaloneSession(),
         studentId: STUDENT_A,
-        status: 'active',
-        currentHintLevel: 0,
       }),
     );
   });
@@ -562,8 +582,7 @@ describe('cross-student session isolation', () => {
     await seed();
     await assertFails(
       setDoc(doc(asStudentA(), 'learningSessions', 'session-cheat'), {
-        studentId: STUDENT_A,
-        status: 'active',
+        ...standaloneSession(),
         currentHintLevel: 4,
       }),
     );
@@ -572,34 +591,57 @@ describe('cross-student session isolation', () => {
   it('only accepts the standalone session creation schema and trusted current time', async () => {
     await seed();
     await assertSucceeds(
-      setDoc(doc(asStudentA(), 'learningSessions', 'session-legitimate'), {
-        studentId: STUDENT_A,
-        subject: 'mathematics',
-        grade: 8,
-        language: 'en',
-        mode: 'practice',
-        strictness: 'balanced',
-        status: 'active',
-        originalProblem: 'Solve 2x = 8',
-        currentHintLevel: 0,
-        nextTurnSequence: 0,
-        revision: 0,
-        startedAt: serverTimestamp(),
-        policyVersion: 'policy-v2',
-        scoringVersion: 'scoring-v2',
-      }),
+      setDoc(doc(asStudentA(), 'learningSessions', 'session-legitimate'), standaloneSession()),
+    );
+  });
+
+  it('requires an explicit standalone scope on browser-created sessions', async () => {
+    await seed();
+    const { scope: _scope, ...withoutScope } = standaloneSession();
+    await assertFails(
+      setDoc(doc(asStudentA(), 'learningSessions', 'session-unscoped'), withoutScope),
+    );
+  });
+
+  it('a browser cannot create classroom or assignment provenance', async () => {
+    await seed();
+    await assertFails(
+      setDoc(
+        doc(asStudentA(), 'learningSessions', 'session-forged-classroom-scope'),
+        standaloneSession({ scope: 'classroom', classroomId: 'class-a' }),
+      ),
+    );
+    await assertFails(
+      setDoc(
+        doc(asStudentA(), 'learningSessions', 'session-forged-assignment-scope'),
+        standaloneSession({
+          scope: 'assignment',
+          classroomId: 'class-a',
+          assignmentId: 'assign-a',
+        }),
+      ),
+    );
+  });
+
+  it('a standalone browser session cannot smuggle tenant ids', async () => {
+    await seed();
+    await assertFails(
+      setDoc(
+        doc(asStudentA(), 'learningSessions', 'session-forged-classroom-id'),
+        standaloneSession({ classroomId: 'class-a' }),
+      ),
+    );
+    await assertFails(
+      setDoc(
+        doc(asStudentA(), 'learningSessions', 'session-forged-assignment-id'),
+        standaloneSession({ assignmentId: 'assign-a' }),
+      ),
     );
   });
 
   it('rejects trusted fields and forged startedAt on client session creation', async () => {
     await seed();
-    const base = {
-      studentId: STUDENT_A,
-      subject: 'mathematics', grade: 8, language: 'en', mode: 'practice',
-      strictness: 'balanced', status: 'active', originalProblem: 'Solve 2x = 8',
-      currentHintLevel: 0, startedAt: new Date('2099-01-01'),
-      policyVersion: 'policy-v2', scoringVersion: 'scoring-v2',
-    };
+    const base = standaloneSession({ startedAt: new Date('2099-01-01') });
     await assertFails(setDoc(doc(asStudentA(), 'learningSessions', 'session-backdated'), base));
     await assertFails(setDoc(doc(asStudentA(), 'learningSessions', 'session-assigned'), {
       ...base, startedAt: serverTimestamp(), assignedDifficulty: 5,
@@ -627,6 +669,37 @@ describe('cross-student session isolation', () => {
     await assertFails(
       updateDoc(doc(asStudentA(), 'learningSessions', 'session-a'), { policyVersion: 'none' }),
     );
+  });
+
+  it('trusted classroom and assignment provenance is immutable from the browser', async () => {
+    await seed();
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'learningSessions', 'session-assignment'), {
+        ...standaloneSession(),
+        scope: 'assignment',
+        classroomId: 'class-a',
+        assignmentId: 'assign-a',
+      });
+    });
+
+    const ref = doc(asStudentA(), 'learningSessions', 'session-assignment');
+    await assertFails(updateDoc(ref, { scope: 'standalone' }));
+    await assertFails(updateDoc(ref, { classroomId: 'class-b' }));
+    await assertFails(updateDoc(ref, { assignmentId: 'assign-b' }));
+    await assertFails(updateDoc(ref, { scope: deleteField() }));
+    await assertFails(updateDoc(ref, { classroomId: deleteField() }));
+    await assertFails(updateDoc(ref, { assignmentId: deleteField() }));
+
+    // Provenance hardening must not make the student's private notes unusable.
+    await assertSucceeds(updateDoc(ref, { scratchpad: 'My working stays editable.' }));
+  });
+
+  it('a legacy unscoped session cannot be browser-backfilled into a classroom', async () => {
+    await seed();
+    const ref = doc(asStudentA(), 'learningSessions', 'session-a');
+    await assertFails(updateDoc(ref, { scope: 'classroom' }));
+    await assertFails(updateDoc(ref, { classroomId: 'class-a' }));
+    await assertFails(updateDoc(ref, { assignmentId: 'assign-a' }));
   });
 });
 
@@ -779,6 +852,23 @@ describe('classroom ownership and membership', () => {
     await seed();
     await assertSucceeds(getDoc(doc(asStudentA(), 'classrooms', 'class-a')));
     await assertFails(getDoc(doc(asStudentB(), 'classrooms', 'class-a')));
+  });
+
+  it.each([
+    ['wrong classroom', { classroomId: 'class-b', userId: STUDENT_A, role: 'student' }],
+    ['wrong user', { classroomId: 'class-a', userId: STUDENT_B, role: 'student' }],
+    ['wrong role', { classroomId: 'class-a', userId: STUDENT_A, role: 'teacher' }],
+  ])('malformed deterministic membership fails closed: %s', async (_label, membership) => {
+    await seed();
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(
+        doc(context.firestore(), 'classroomMemberships', `class-a__${STUDENT_A}`),
+        { ...membership, status: 'active' },
+      );
+    });
+
+    await assertFails(getDoc(doc(asStudentA(), 'classrooms', 'class-a')));
+    await assertFails(getDoc(doc(asStudentA(), 'assignments', 'assign-a')));
   });
 
   it('a student cannot enroll another student', async () => {
@@ -1330,9 +1420,45 @@ describe('reports are visible only to their reporter', () => {
   it('a student cannot file a report attributed to someone else', async () => {
     await seed();
     await assertFails(
-      setDoc(doc(asStudentB(), 'reports', 'report-forged'), {
-        reporterId: STUDENT_A,
+      setDoc(doc(asStudentA(), 'reports', 'report-forged'), {
+        reporterId: STUDENT_B,
+        sessionId: 'session-a',
         reason: 'spoofed',
+      }),
+    );
+  });
+
+  it('a student cannot report a missing session or another student session', async () => {
+    await seed();
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'learningSessions', 'session-b'), {
+        ...standaloneSession(),
+        studentId: STUDENT_B,
+      });
+    });
+
+    await assertFails(
+      setDoc(doc(asStudentA(), 'reports', 'report-missing-session'), {
+        reporterId: STUDENT_A,
+        sessionId: 'does-not-exist',
+        reason: 'unhelpful_response',
+      }),
+    );
+    await assertFails(
+      setDoc(doc(asStudentA(), 'reports', 'report-other-session'), {
+        reporterId: STUDENT_A,
+        sessionId: 'session-b',
+        reason: 'unhelpful_response',
+      }),
+    );
+  });
+
+  it('a report must identify the session it concerns', async () => {
+    await seed();
+    await assertFails(
+      setDoc(doc(asStudentA(), 'reports', 'report-unscoped'), {
+        reporterId: STUDENT_A,
+        reason: 'unhelpful_response',
       }),
     );
   });
@@ -1348,6 +1474,7 @@ describe('reports are visible only to their reporter', () => {
     await assertSucceeds(
       setDoc(doc(asStudentA(), 'reports', 'report-own'), {
         reporterId: STUDENT_A,
+        sessionId: 'session-a',
         reason: 'unhelpful_response',
       }),
     );

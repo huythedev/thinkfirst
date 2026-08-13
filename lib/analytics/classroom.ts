@@ -1,4 +1,7 @@
 import type { SessionMetrics } from '@/lib/types/scoring';
+import { computeIndependenceProfile } from '@/lib/scoring/independence';
+import { deriveMasteryRows, type DerivedMasteryRow } from '@/lib/scoring/mastery';
+import { parseStoredSessionMetrics } from '@/lib/scoring/stored-metrics';
 
 /**
  * Classroom analytics aggregation, section 12.7 of module `02` and section 32 of
@@ -46,6 +49,8 @@ export interface ObservedMetric {
 export interface AnalyticsSessionRow {
   id: string;
   studentId: string;
+  scope?: 'standalone' | 'classroom' | 'assignment';
+  classroomId?: string | null;
   status?: string;
   startedAt: Date | null;
   completedAt: Date | null;
@@ -64,33 +69,15 @@ export interface AnalyticsSnapshotRow {
   metrics: Partial<SessionMetrics> | null;
 }
 
-export interface AnalyticsProfileRow {
-  studentId: string;
-  score: number | null;
-  band: string | null;
-  trend: number | null;
-  suppressed: boolean;
-  coverage: number;
-}
-
-export interface AnalyticsMasteryRow {
-  studentId: string;
-  subject: string;
-  topic: string;
-  guidedAccuracy: number;
-  independentAccuracy: number;
-  averageHintLevel: number;
-  transferSuccessRate: number;
-  sessionCount: number;
-}
-
 export interface AnalyticsAttemptRow {
+  sessionId: string;
   studentId: string;
   errorCategory?: string | null;
   topic?: string | null;
 }
 
 export interface AnalyticsReportRow {
+  sessionId: string;
   studentId: string;
   createdAt: Date | null;
   resolved: boolean;
@@ -106,10 +93,23 @@ export interface ClassroomAnalyticsInput {
   members: AnalyticsMember[];
   sessions: AnalyticsSessionRow[];
   snapshots: AnalyticsSnapshotRow[];
-  profiles: AnalyticsProfileRow[];
-  mastery: AnalyticsMasteryRow[];
   attempts: AnalyticsAttemptRow[];
   reports: AnalyticsReportRow[];
+}
+
+/**
+ * The server loader supplies complete, schema-validated metrics. Pure callers
+ * may intentionally provide a partial metrics object for a single dashboard
+ * counter, so aggregation only needs to reject an explicit contradictory
+ * session id here; complete metrics are validated before mastery/profile use.
+ */
+function metricsSessionMatches(
+  metrics: Partial<SessionMetrics> | null,
+  sessionId: string | null,
+): boolean {
+  if (!metrics || typeof metrics !== 'object') return true;
+  const embeddedSessionId = (metrics as { sessionId?: unknown }).sessionId;
+  return typeof embeddedSessionId !== 'string' || embeddedSessionId === sessionId;
 }
 
 export interface TopicMasteryCell {
@@ -204,20 +204,40 @@ export function aggregateClassroomAnalytics(
   classroomId: string,
   input: ClassroomAnalyticsInput,
 ): ClassroomAnalytics {
-  const { now, members, sessions, snapshots, profiles, mastery, attempts, reports } = input;
+  const { now, members, sessions, snapshots, attempts, reports } = input;
   const memberIds = new Set(members.map((member) => member.studentId));
 
   // Cross-student data is filtered here as well as in the loader. A classroom
   // aggregate that silently included a non-member would be a privacy failure
   // that no rule catches, because these reads run under Admin credentials.
-  const ownSessions = sessions.filter((session) => memberIds.has(session.studentId));
-  const ownSnapshots = snapshots.filter(
-    (snapshot) => memberIds.has(snapshot.studentId) && !snapshot.excludedForSystemError,
+  const ownSessions = sessions.filter(
+    (session) =>
+      memberIds.has(session.studentId) &&
+      (session.scope === 'classroom' || session.scope === 'assignment') &&
+      session.classroomId === classroomId,
   );
-  const ownProfiles = profiles.filter((profile) => memberIds.has(profile.studentId));
-  const ownMastery = mastery.filter((record) => memberIds.has(record.studentId));
-  const ownAttempts = attempts.filter((attempt) => memberIds.has(attempt.studentId));
-  const ownReports = reports.filter((report) => memberIds.has(report.studentId));
+  const sessionOwners = new Map(ownSessions.map((session) => [session.id, session.studentId]));
+  const allowedSessionIds = new Set(sessionOwners.keys());
+  const ownSnapshots = snapshots.filter(
+    (snapshot) =>
+      allowedSessionIds.has(snapshot.sessionId ?? '') &&
+      memberIds.has(snapshot.studentId) &&
+      sessionOwners.get(snapshot.sessionId ?? '') === snapshot.studentId &&
+      metricsSessionMatches(snapshot.metrics, snapshot.sessionId) &&
+      !snapshot.excludedForSystemError,
+  );
+  const ownAttempts = attempts.filter(
+    (attempt) =>
+      allowedSessionIds.has(attempt.sessionId) &&
+      memberIds.has(attempt.studentId) &&
+      sessionOwners.get(attempt.sessionId) === attempt.studentId,
+  );
+  const ownReports = reports.filter(
+    (report) =>
+      allowedSessionIds.has(report.sessionId) &&
+      memberIds.has(report.studentId) &&
+      sessionOwners.get(report.sessionId) === report.studentId,
+  );
 
   const weekAgo = new Date(now.getTime() - WEEK_MS);
 
@@ -273,11 +293,32 @@ export function aggregateClassroomAnalytics(
     }
   }
 
-  const guidedGaps = ownMastery
+  const scopedMetrics = ownSnapshots
+    .map((snapshot) => parseStoredSessionMetrics(snapshot.metrics, snapshot.sessionId ?? undefined))
+    .filter((metrics): metrics is SessionMetrics => metrics !== null);
+  const metricsByStudent = new Map<string, SessionMetrics[]>();
+  for (const metrics of scopedMetrics) {
+    const studentId = sessionOwners.get(metrics.sessionId);
+    if (!studentId) continue;
+    const bucket = metricsByStudent.get(studentId);
+    if (bucket) bucket.push(metrics);
+    else metricsByStudent.set(studentId, [metrics]);
+  }
+  const scopedMastery = [...metricsByStudent.entries()].flatMap(([studentId, metrics]) =>
+    deriveMasteryRows(studentId, metrics),
+  );
+
+  const guidedGaps = scopedMastery
     .filter((record) => record.sessionCount > 0)
     .map((record) => record.guidedAccuracy - record.independentAccuracy);
 
-  const profileScores = ownProfiles
+  const profileByStudent = new Map(
+    [...metricsByStudent.entries()].map(([studentId, metrics]) => [
+      studentId,
+      computeIndependenceProfile(metrics),
+    ]),
+  );
+  const profileScores = [...profileByStudent.values()]
     .filter((profile) => !profile.suppressed && typeof profile.score === 'number')
     .map((profile) => profile.score as number);
 
@@ -299,8 +340,8 @@ export function aggregateClassroomAnalytics(
     }));
 
   // Topic mastery matrix, averaged across the students who studied each topic.
-  const topicGroups = new Map<string, AnalyticsMasteryRow[]>();
-  for (const record of ownMastery) {
+  const topicGroups = new Map<string, DerivedMasteryRow[]>();
+  for (const record of scopedMastery) {
     const key = `${record.subject}\u0000${record.topic}`;
     const existing = topicGroups.get(key);
     if (existing) existing.push(record);
@@ -309,7 +350,7 @@ export function aggregateClassroomAnalytics(
 
   const topicMastery: TopicMasteryCell[] = [...topicGroups.values()].map((records) => {
     const count = records.length;
-    const avg = (pick: (row: AnalyticsMasteryRow) => number) =>
+    const avg = (pick: (row: DerivedMasteryRow) => number) =>
       records.reduce((acc, row) => acc + pick(row), 0) / count;
     const guided = avg((row) => row.guidedAccuracy);
     const independent = avg((row) => row.independentAccuracy);
@@ -357,9 +398,8 @@ export function aggregateClassroomAnalytics(
     if (existing) existing.push(snapshot);
     else snapshotsByStudent.set(snapshot.studentId, [snapshot]);
   }
-  const profileByStudent = new Map(ownProfiles.map((profile) => [profile.studentId, profile]));
-  const masteryByStudent = new Map<string, AnalyticsMasteryRow[]>();
-  for (const record of ownMastery) {
+  const masteryByStudent = new Map<string, DerivedMasteryRow[]>();
+  for (const record of scopedMastery) {
     const existing = masteryByStudent.get(record.studentId);
     if (existing) existing.push(record);
     else masteryByStudent.set(record.studentId, [record]);
@@ -421,10 +461,10 @@ export function aggregateClassroomAnalytics(
       sessionsCompleted: studentSessions.filter((session) => session.status === 'completed').length,
       lastActiveAt,
       score: profile && !profile.suppressed ? profile.score : null,
-      band: profile && !profile.suppressed ? profile.band : null,
+      band: profile && !profile.suppressed ? profile.band?.id ?? null : null,
       trend: profile && !profile.suppressed ? profile.trend : null,
       suppressed: profile ? profile.suppressed : true,
-      coverage: profile ? profile.coverage : 0,
+      coverage: profile ? profile.evidenceWeight : 0,
       averageHintLevel: averageHint,
       transferSuccessRate: transferRate,
       flags,
@@ -444,7 +484,7 @@ export function aggregateClassroomAnalytics(
     attemptBeforeHelpRate: rate(attemptGenuine, attemptObserved, totalSnapshots),
     averageHintLevel: mean(hintLevels, totalSnapshots),
     transferSuccessRate: rate(transferSuccess, transferObserved, totalSnapshots),
-    guidedIndependentGap: mean(guidedGaps, ownMastery.length),
+    guidedIndependentGap: mean(guidedGaps, scopedMastery.length),
     independenceAverage: mean(profileScores, members.length),
     evidenceCoverage: totalSnapshots > 0 ? coverageSum / totalSnapshots : 0,
     openReportCount: ownReports.filter((report) => !report.resolved).length,

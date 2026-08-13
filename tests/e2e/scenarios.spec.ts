@@ -335,6 +335,7 @@ test.describe('Scenario B: assessment-safe assignment', () => {
       {
         id: str(sessionId),
         studentId: str(student.uid),
+        scope: str('assignment'),
         assignmentId: str(assignmentId),
         classroomId: str(classroomId),
         subject: str('mathematics'),

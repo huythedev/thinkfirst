@@ -165,7 +165,12 @@ describe('requireClassroomOwner', () => {
 describe('isActiveMember', () => {
   it('accepts an active member at the deterministic membership id', async () => {
     getDoc.mockResolvedValue(
-      docOf('class-a__student-1', { status: 'active', userId: 'student-1' }),
+      docOf('class-a__student-1', {
+        classroomId: 'class-a',
+        status: 'active',
+        role: 'student',
+        userId: 'student-1',
+      }),
     );
 
     await expect(isActiveMember('class-a', 'student-1')).resolves.toBe(true);
@@ -174,7 +179,12 @@ describe('isActiveMember', () => {
 
   it('refuses a removed member, so leaving a classroom ends the teacher\'s access', async () => {
     getDoc.mockResolvedValue(
-      docOf('class-a__student-1', { status: 'removed', userId: 'student-1' }),
+      docOf('class-a__student-1', {
+        classroomId: 'class-a',
+        status: 'removed',
+        role: 'student',
+        userId: 'student-1',
+      }),
     );
 
     await expect(isActiveMember('class-a', 'student-1')).resolves.toBe(false);
@@ -188,9 +198,37 @@ describe('isActiveMember', () => {
 
   it('refuses a membership document whose userId does not match', async () => {
     getDoc.mockResolvedValue(
-      docOf('class-a__student-1', { status: 'active', userId: 'someone-else' }),
+      docOf('class-a__student-1', {
+        classroomId: 'class-a',
+        status: 'active',
+        role: 'student',
+        userId: 'someone-else',
+      }),
     );
 
+    await expect(isActiveMember('class-a', 'student-1')).resolves.toBe(false);
+  });
+
+  it('refuses a membership document for a different classroom or role', async () => {
+    getDoc
+      .mockResolvedValueOnce(
+        docOf('class-a__student-1', {
+          classroomId: 'class-b',
+          status: 'active',
+          role: 'student',
+          userId: 'student-1',
+        }),
+      )
+      .mockResolvedValueOnce(
+        docOf('class-a__student-1', {
+          classroomId: 'class-a',
+          status: 'active',
+          role: 'teacher',
+          userId: 'student-1',
+        }),
+      );
+
+    await expect(isActiveMember('class-a', 'student-1')).resolves.toBe(false);
     await expect(isActiveMember('class-a', 'student-1')).resolves.toBe(false);
   });
 });

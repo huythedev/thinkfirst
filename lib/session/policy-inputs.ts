@@ -270,8 +270,23 @@ export async function resolvePolicyInputs(
   if (session.studentId !== uid) return { status: 'forbidden' };
   if (session.status !== 'active') return { status: 'closed' };
 
-  const assignmentId = typeof session.assignmentId === 'string' ? session.assignmentId : null;
-  const classroomId = typeof session.classroomId === 'string' ? session.classroomId : null;
+  const scope = session.scope;
+  const rawAssignmentId = typeof session.assignmentId === 'string' ? session.assignmentId : null;
+  const rawClassroomId = typeof session.classroomId === 'string' ? session.classroomId : null;
+  const coherentStandalone =
+    (scope === 'standalone' || scope === undefined) &&
+    rawClassroomId === null &&
+    rawAssignmentId === null;
+  const coherentClassroom =
+    scope === 'classroom' && rawClassroomId !== null && rawAssignmentId === null;
+  const coherentAssignment =
+    scope === 'assignment' && rawClassroomId !== null && rawAssignmentId !== null;
+  if (!coherentStandalone && !coherentClassroom && !coherentAssignment) {
+    return { status: 'forbidden' };
+  }
+
+  const assignmentId = coherentAssignment ? rawAssignmentId : null;
+  const classroomId = coherentClassroom || coherentAssignment ? rawClassroomId : null;
   const imageId = typeof session.imageId === 'string' ? session.imageId : null;
 
   const [assignmentSnapshot, classroomSnapshot, profileSnapshot, imageSnapshot, assignmentReferenceSnapshot, membershipSnapshot] = await Promise.all([
@@ -298,13 +313,26 @@ export async function resolvePolicyInputs(
   const membership =
     membershipSnapshot?.exists ? ((membershipSnapshot.data() ?? {}) as Record<string, unknown>) : null;
 
+  const activeMembership =
+    membership !== null &&
+    membership.classroomId === classroomId &&
+    membership.userId === uid &&
+    membership.role === 'student' &&
+    membership.status === 'active';
+  const validClassroom =
+    classroom !== null &&
+    typeof classroom.teacherId === 'string' &&
+    classroom.teacherId.length > 0;
+
+  if (classroomId && (!activeMembership || !validClassroom)) return { status: 'forbidden' };
+
   // An assignment must belong to the classroom the session claims, otherwise a
   // session could point at a lenient assignment from elsewhere.
   const assignmentBelongs =
     assignment !== null &&
     classroomId !== null &&
     assignment.classroomId === classroomId &&
-    membership?.status === 'active';
+    activeMembership;
 
   // Assignment policy and its protected reference are authoritative only after
   // proving the session is bound to that assignment's classroom and the caller
@@ -327,9 +355,7 @@ export async function resolvePolicyInputs(
       ...resolved,
       classroomId: classroomId ?? undefined,
       reviewerAvailable:
-        classroomId !== null &&
-        membership?.status === 'active' &&
-        typeof classroom?.teacherId === 'string' && classroom.teacherId.length > 0,
+        classroomId !== null && activeMembership && validClassroom,
     },
   };
 }

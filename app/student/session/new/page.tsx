@@ -73,6 +73,9 @@ export default function NewSession() {
     try {
       const sessionRef = await addDoc(collection(db, 'learningSessions'), {
         studentId: user.uid,
+        // General practice is never classroom evidence. Classroom and assignment
+        // bindings are created by the server after it verifies membership.
+        scope: 'standalone',
         subject,
         grade: grade ?? 8,
         language: profile?.preferredLanguage ?? 'en',

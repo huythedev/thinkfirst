@@ -362,6 +362,8 @@ for (let index = 0; index < 20; index += 1) {
     {
       id: str(sessionId),
       studentId: str(student.uid),
+      scope: str('classroom'),
+      classroomId: str(CLASSROOM_ID),
       subject: str(topic.subject),
       grade: int(student.grade),
       language: str('en'),

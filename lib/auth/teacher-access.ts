@@ -126,5 +126,10 @@ export async function isActiveMember(classroomId: string, studentId: string): Pr
   const snap = await adminDb.collection('classroomMemberships').doc(membershipId).get();
   if (!snap.exists) return false;
   const data = snap.data() ?? {};
-  return data.status === 'active' && data.userId === studentId;
+  return (
+    data.classroomId === classroomId &&
+    data.userId === studentId &&
+    data.role === 'student' &&
+    data.status === 'active'
+  );
 }

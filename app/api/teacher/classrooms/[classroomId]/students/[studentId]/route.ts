@@ -5,9 +5,10 @@ import {
   requireClassroomOwner,
   teacherAuthResponseInit,
 } from '@/lib/auth/teacher-access';
-import { loadEvidenceForStudents } from '@/lib/analytics/classroom-server';
+import { loadEvidenceForClassroom } from '@/lib/analytics/classroom-server';
 import { aggregateClassroomAnalytics } from '@/lib/analytics/classroom';
 import { writeAuditLog } from '@/lib/audit/audit-log';
+import { parseStoredSessionMetrics } from '@/lib/scoring/stored-metrics';
 
 /**
  * One student's learning summary, for the teacher who owns their classroom.
@@ -54,7 +55,7 @@ export async function GET(
 
     const [userSnap, evidence] = await Promise.all([
       adminDb.collection('users').doc(studentId).get(),
-      loadEvidenceForStudents([studentId]),
+      loadEvidenceForClassroom(classroomId, [studentId]),
     ]);
 
     const displayName =
@@ -93,7 +94,9 @@ export async function GET(
       .slice(0, 20)
       .map((session) => {
         const snapshot = evidence.snapshots.find((entry) => entry.sessionId === session.id) ?? null;
-        const metrics = snapshot?.metrics ?? null;
+        const metrics = snapshot
+          ? parseStoredSessionMetrics(snapshot.metrics, session.id)
+          : null;
         return {
           sessionId: session.id,
           status: session.status ?? 'unknown',

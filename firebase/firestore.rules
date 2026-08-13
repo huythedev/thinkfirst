@@ -49,6 +49,9 @@ service cloud.firestore {
     function isActiveMember(classroomId) {
       return isSignedIn() &&
         exists(membershipPath(classroomId)) &&
+        get(membershipPath(classroomId)).data.classroomId == classroomId &&
+        get(membershipPath(classroomId)).data.userId == request.auth.uid &&
+        get(membershipPath(classroomId)).data.role == 'student' &&
         get(membershipPath(classroomId)).data.status == 'active';
     }
 
@@ -267,12 +270,15 @@ service cloud.firestore {
         isAdmin());
       allow create: if isSignedIn() &&
         request.resource.data.studentId == request.auth.uid &&
+        request.resource.data.scope == 'standalone' &&
+        !('classroomId' in request.resource.data) &&
+        !('assignmentId' in request.resource.data) &&
         request.resource.data.status == 'active' &&
         request.resource.data.currentHintLevel == 0 &&
         request.resource.data.nextTurnSequence == 0 &&
         request.resource.data.revision == 0 &&
         request.resource.data.keys().hasOnly([
-          'studentId', 'subject', 'grade', 'language', 'mode', 'strictness',
+          'studentId', 'scope', 'subject', 'grade', 'language', 'mode', 'strictness',
           'status', 'originalProblem', 'imageId', 'currentHintLevel',
           'nextTurnSequence', 'revision', 'startedAt', 'policyVersion', 'scoringVersion'
         ]) &&
@@ -289,10 +295,9 @@ service cloud.firestore {
         request.resource.data.scoringVersion is string &&
         request.resource.data.startedAt == request.time &&
         (!('imageId' in request.resource.data) || request.resource.data.imageId is string);
-      // currentHintLevel is deliberately absent from the writable set. It is the
-      // position on the hint ladder, which is an educational policy decision, so
-      // the tutoring endpoint advances it with Admin credentials. A browser that
-      // could raise it could walk itself to the full-solution rung.
+      // currentHintLevel and session provenance are deliberately absent from the
+      // writable set. The server owns the hint ladder and the scope/classroom/
+      // assignment binding; the browser cannot move or remove either authority.
       //
       // scratchpad is the student's own working notes: private to them, never
       // read by policy, and therefore safe to write from the client.
@@ -405,7 +410,9 @@ service cloud.firestore {
         resource.data.reporterId == request.auth.uid ||
         isAdmin());
       allow create: if isSignedIn() &&
-        request.resource.data.reporterId == request.auth.uid;
+        request.resource.data.reporterId == request.auth.uid &&
+        request.resource.data.sessionId is string &&
+        ownsSession(request.resource.data.sessionId);
       allow update, delete: if false;
     }
 

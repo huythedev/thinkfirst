@@ -6,6 +6,7 @@ import {
   safeStudentScoreProjection,
 } from '@/lib/ai/output-boundaries';
 import { computeIndependenceProfile, scoreSession } from '@/lib/scoring/independence';
+import { deriveMasteryRows } from '@/lib/scoring/mastery';
 import {
   RawAttempt,
   RawSession,
@@ -67,7 +68,10 @@ function occurredAtOf(session: RawSession): number {
  * the evaluator model again at read time would make the score non-reproducible,
  * and would also charge a model call to every page view.
  */
-export async function loadSessionMetrics(studentId: string): Promise<SessionMetrics[]> {
+export async function loadSessionMetrics(
+  studentId: string,
+  requiredSessionId?: string,
+): Promise<SessionMetrics[]> {
   const sessionsSnapshot = await adminDb
     .collection('learningSessions')
     .where('studentId', '==', studentId)
@@ -80,9 +84,21 @@ export async function loadSessionMetrics(studentId: string): Promise<SessionMetr
 
   if (sessions.length === 0) return [];
 
-  const recent = sessions
+  const ordered = sessions
     .sort((left, right) => occurredAtOf(right) - occurredAtOf(left))
-    .slice(0, MAX_SESSIONS);
+  const recent = ordered.slice(0, MAX_SESSIONS);
+  const requiredSession = requiredSessionId
+    ? ordered.find((session) => session.id === requiredSessionId)
+    : null;
+
+  if (requiredSessionId && !requiredSession) {
+    throw new Error('Session does not belong to the requested student.');
+  }
+  if (requiredSession && !recent.some((session) => session.id === requiredSession.id)) {
+    // The profile remains bounded to the same 30-session history, but evidence
+    // persistence must always derive the requested session from its own data.
+    recent.splice(MAX_SESSIONS - 1, 1, requiredSession);
+  }
 
   const ids = recent.map((session) => session.id);
 
@@ -262,26 +278,17 @@ export async function persistSessionEvidence(
   options: { requireActiveSession?: boolean } = {},
 ): Promise<PersistResult> {
   const [allMetrics, profileBaseline] = await Promise.all([
-    loadSessionMetrics(studentId),
+    loadSessionMetrics(studentId, sessionId),
     loadProfileBaselineForSession(studentId, sessionId),
   ]);
   const profileBaselineScore = profileBaseline.score;
 
-  const metrics =
-    allMetrics.find((entry) => entry.sessionId === sessionId) ?? allMetrics[0] ?? null;
+  const metrics = allMetrics.find((entry) => entry.sessionId === sessionId);
+  if (!metrics) {
+    throw new Error('Requested session metrics are unavailable.');
+  }
 
-  const sessionScore = metrics
-    ? scoreSession(metrics)
-    : {
-        sessionId,
-        occurredAt: null,
-        rawScore: null,
-        coverage: 0,
-        displaySuppressed: true,
-        components: [],
-        excludedForSystemError: false,
-        scoringVersion: SCORING_VERSION,
-      };
+  const sessionScore = scoreSession(metrics);
 
   const profile = await computeProfileWithPerSessionCap(
     allMetrics,
@@ -459,79 +466,18 @@ function buildMasteryRecords(
   studentId: string,
   allMetrics: SessionMetrics[],
 ): Array<{ ref: FirebaseFirestore.DocumentReference; data: Record<string, unknown> }> {
-  const scorable = allMetrics.filter(
-    (metrics) => !metrics.endedWithSystemError && metrics.topic && metrics.subject,
-  );
-  if (scorable.length === 0) return [];
-
-  // One record per subject and topic, so the id is deterministic and the rule can
-  // stay a simple ownership check.
-  const groups = new Map<string, SessionMetrics[]>();
-  for (const metrics of scorable) {
-    const key = `${metrics.subject}__${metrics.topic}`;
-    const bucket = groups.get(key);
-    if (bucket) bucket.push(metrics);
-    else groups.set(key, [metrics]);
-  }
-
-  const records: Array<{ ref: FirebaseFirestore.DocumentReference; data: Record<string, unknown> }> = [];
-
-  for (const [, group] of groups) {
-    const subject = group[0].subject!;
-    const topic = group[0].topic!;
-    const recordId = `${studentId}__${subject}__${topic}`.replace(/[/\s]+/g, '_').slice(0, 400);
-
-    const guided = group.filter((metrics) => (metrics.highestHintUsed ?? 0) > 0);
-    const independent = group.filter((metrics) => (metrics.highestHintUsed ?? 0) === 0);
-
-    const accuracyOf = (sessions: SessionMetrics[]): number => {
-      const scored = sessions
-        .map((metrics) => scoreSession(metrics))
-        .filter((score) => score.rawScore !== null);
-      if (scored.length === 0) return 0;
-      return (
-        Math.round(
-          (scored.reduce((sum, score) => sum + (score.rawScore ?? 0), 0) / scored.length) * 100,
-        ) / 10000
-      );
-    };
-
-    const hintLevels = group
-      .map((metrics) => metrics.highestHintUsed)
-      .filter((level): level is number => typeof level === 'number');
-
-    const transferAttempts = group.filter((metrics) => metrics.transfer.issued);
-    const transferSuccesses = transferAttempts.filter((metrics) =>
-      ['independent_correct', 'minor_prompt', 'one_conceptual_hint'].includes(
-        metrics.transfer.outcome ?? '',
-      ),
-    );
-
-    records.push({
+  return deriveMasteryRows(studentId, allMetrics).map((row) => {
+    const recordId = `${studentId}__${row.subject}__${row.topic}`
+      .replace(/[/\s]+/g, '_')
+      .slice(0, 400);
+    return {
       ref: adminDb.collection('masteryRecords').doc(recordId),
       data: {
         id: recordId,
-        studentId,
-        subject,
-        topic,
-        guidedAccuracy: accuracyOf(guided),
-        independentAccuracy: accuracyOf(independent),
-        averageHintLevel:
-          hintLevels.length === 0
-            ? 0
-            : Math.round(
-                (hintLevels.reduce((sum, level) => sum + level, 0) / hintLevels.length) * 100,
-              ) / 100,
-        transferSuccessRate:
-          transferAttempts.length === 0
-            ? 0
-            : Math.round((transferSuccesses.length / transferAttempts.length) * 10000) / 10000,
-        sessionCount: group.length,
+        ...row,
         scoringVersion: SCORING_VERSION,
         updatedAt: FieldValue.serverTimestamp(),
       },
-    });
-  }
-
-  return records;
+    };
+  });
 }

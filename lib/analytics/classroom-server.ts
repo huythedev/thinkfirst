@@ -1,11 +1,9 @@
 import { adminDb } from '@/lib/firebase/admin';
 import { SCORING_VERSION } from '@/lib/types/scoring';
-import type { SessionMetrics } from '@/lib/types/scoring';
+import { parseStoredSessionMetrics } from '@/lib/scoring/stored-metrics';
 import {
   AnalyticsAttemptRow,
-  AnalyticsMasteryRow,
   AnalyticsMember,
-  AnalyticsProfileRow,
   AnalyticsReportRow,
   AnalyticsSessionRow,
   AnalyticsSnapshotRow,
@@ -25,17 +23,10 @@ import {
  * -- would hand teachers the raw transcripts that section 5.8 says must not be
  * exposed by default, and would do it for the sake of a count.
  *
- * So the security boundary sits in `requireClassroomOwner`, not in a rule, and
- * the membership roster is the only thing that decides whose data is read. Every
- * query below is keyed by a student id that came from `classroomMemberships`
- * for this classroom; no query is keyed by anything the caller supplied.
- *
- * `learningSessions` has no `classroomId` (section 28 marks it optional and the
- * student workspace never writes it), so sessions are fanned out over member ids
- * in chunks rather than filtered by classroom. Backfilling `classroomId` would
- * be the faster query, but it would also be a migration over existing student
- * data to serve a teacher view, and it would still need the membership read to
- * know which classroom to trust.
+ * Membership establishes who may have classroom evidence. The trusted session
+ * binding establishes which evidence belongs to this classroom. Both are
+ * required: a current roster entry never authorizes the student's activity from
+ * another classroom or from private practice.
  */
 
 /** Firestore caps `in` filters at 30; 10 matches the batching in lib/scoring/server.ts. */
@@ -79,8 +70,15 @@ export async function loadClassroomMembers(classroomId: string): Promise<Analyti
     .get();
 
   const studentIds = snapshot.docs
+    .filter((docSnap) => {
+      const data = docSnap.data();
+      return (
+        data.role === 'student' &&
+        typeof data.userId === 'string' &&
+        docSnap.id === `${classroomId}__${data.userId}`
+      );
+    })
     .map((docSnap) => docSnap.data())
-    .filter((data) => data.role === 'student' && typeof data.userId === 'string')
     .map((data) => data.userId as string);
 
   if (studentIds.length === 0) return [];
@@ -109,113 +107,166 @@ export async function loadClassroomMembers(classroomId: string): Promise<Analyti
 interface LoadedEvidence {
   sessions: AnalyticsSessionRow[];
   snapshots: AnalyticsSnapshotRow[];
-  profiles: AnalyticsProfileRow[];
-  mastery: AnalyticsMasteryRow[];
   attempts: AnalyticsAttemptRow[];
   reports: AnalyticsReportRow[];
 }
 
-export async function loadEvidenceForStudents(studentIds: string[]): Promise<LoadedEvidence> {
+interface CandidateSession {
+  id: string;
+  studentId: string;
+  data: FirebaseFirestore.DocumentData;
+}
+
+function toAnalyticsSession(
+  candidate: CandidateSession,
+  scope: 'classroom' | 'assignment',
+  classroomId: string,
+): AnalyticsSessionRow {
+  return {
+    id: candidate.id,
+    studentId: candidate.studentId,
+    scope,
+    classroomId,
+    status: typeof candidate.data.status === 'string' ? candidate.data.status : undefined,
+    startedAt: toDate(candidate.data.startedAt),
+    completedAt: toDate(candidate.data.completedAt),
+    subject: typeof candidate.data.subject === 'string' ? candidate.data.subject : null,
+    topic: typeof candidate.data.topic === 'string' ? candidate.data.topic : null,
+  };
+}
+
+export async function loadEvidenceForClassroom(
+  classroomId: string,
+  studentIds: string[],
+): Promise<LoadedEvidence> {
   if (studentIds.length === 0) {
-    return { sessions: [], snapshots: [], profiles: [], mastery: [], attempts: [], reports: [] };
+    return { sessions: [], snapshots: [], attempts: [], reports: [] };
   }
 
   const batches = chunk(studentIds, IN_CHUNK_SIZE);
-
-  const [sessionBatches, snapshotBatches, masteryBatches, attemptBatches, reportBatches] =
-    await Promise.all([
-      Promise.all(
-        batches.map((batch) =>
-          adminDb.collection('learningSessions').where('studentId', 'in', batch).get(),
-        ),
-      ),
-      Promise.all(
-        batches.map((batch) =>
-          adminDb
-            .collection('independenceSnapshotsInternal')
-            .where('studentId', 'in', batch)
-            .where('scoringVersion', '==', SCORING_VERSION)
-            .get(),
-        ),
-      ),
-      Promise.all(
-        batches.map((batch) =>
-          adminDb.collection('masteryRecords').where('studentId', 'in', batch).get(),
-        ),
-      ),
-      Promise.all(
-        batches.map((batch) =>
-          adminDb.collection('studentAttempts').where('studentId', 'in', batch).get(),
-        ),
-      ),
-      Promise.all(
-        batches.map((batch) =>
-          adminDb.collection('reports').where('reporterId', 'in', batch).get(),
-        ),
-      ),
-    ]);
+  const sessionBatches = await Promise.all(
+    batches.map((batch) =>
+      adminDb
+        .collection('learningSessions')
+        .where('classroomId', '==', classroomId)
+        .where('studentId', 'in', batch)
+        .get(),
+    ),
+  );
 
   const sessions: AnalyticsSessionRow[] = [];
+  const sessionOwners = new Map<string, string>();
+  const allowedStudentIds = new Set(studentIds);
+  const candidateAssignments = new Map<string, CandidateSession[]>();
   for (const batch of sessionBatches) {
     for (const docSnap of batch.docs) {
       const data = docSnap.data() ?? {};
-      sessions.push({
-        id: docSnap.id,
-        studentId: String(data.studentId ?? ''),
-        status: typeof data.status === 'string' ? data.status : undefined,
-        startedAt: toDate(data.startedAt),
-        completedAt: toDate(data.completedAt),
-        subject: typeof data.subject === 'string' ? data.subject : null,
-        topic: typeof data.topic === 'string' ? data.topic : null,
-      });
+      const studentId = typeof data.studentId === 'string' ? data.studentId : '';
+      const scope = data.scope;
+      if (
+        data.classroomId !== classroomId ||
+        !allowedStudentIds.has(studentId) ||
+        (scope !== 'classroom' && scope !== 'assignment') ||
+        (scope === 'classroom' && 'assignmentId' in data) ||
+        (scope === 'assignment' && typeof data.assignmentId !== 'string')
+      ) {
+        continue;
+      }
+      if (scope === 'assignment') {
+        const assignmentId = data.assignmentId as string;
+        const candidates = candidateAssignments.get(assignmentId);
+        const candidate = { id: docSnap.id, studentId, data };
+        if (candidates) candidates.push(candidate);
+        else candidateAssignments.set(assignmentId, [candidate]);
+        continue;
+      }
+      const candidate = { id: docSnap.id, studentId, data };
+      sessionOwners.set(candidate.id, candidate.studentId);
+      sessions.push(toAnalyticsSession(candidate, 'classroom', classroomId));
     }
   }
 
+  if (candidateAssignments.size > 0) {
+    const assignmentIds = [...candidateAssignments.keys()];
+    const assignmentBatches = await Promise.all(
+      chunk(assignmentIds, IN_CHUNK_SIZE).map((batch) =>
+        adminDb.getAll(
+          ...batch.map((assignmentId) => adminDb.collection('assignments').doc(assignmentId)),
+        ),
+      ),
+    );
+    const validAssignmentIds = new Set<string>();
+    for (const batch of assignmentBatches) {
+      for (const assignmentSnap of batch) {
+        if (!assignmentSnap.exists) continue;
+        const assignment = assignmentSnap.data() ?? {};
+        if (assignment.classroomId === classroomId) validAssignmentIds.add(assignmentSnap.id);
+      }
+    }
+    for (const assignmentId of validAssignmentIds) {
+      for (const candidate of candidateAssignments.get(assignmentId) ?? []) {
+        sessionOwners.set(candidate.id, candidate.studentId);
+        sessions.push(toAnalyticsSession(candidate, 'assignment', classroomId));
+      }
+    }
+  }
+
+  if (sessions.length === 0) {
+    return { sessions: [], snapshots: [], attempts: [], reports: [] };
+  }
+
+  const sessionIds = sessions.map((session) => session.id);
+  const [snapshotBatches, attemptBatches, reportBatches] = await Promise.all([
+    Promise.all(
+      chunk(sessionIds, IN_CHUNK_SIZE).map((batch) =>
+        adminDb.getAll(
+          ...batch.map((sessionId) =>
+            adminDb
+              .collection('independenceSnapshotsInternal')
+              .doc(`${sessionId}__${SCORING_VERSION}`),
+          ),
+        ),
+      ),
+    ),
+    Promise.all(
+      chunk(sessionIds, IN_CHUNK_SIZE).map((batch) =>
+        adminDb.collection('studentAttempts').where('sessionId', 'in', batch).get(),
+      ),
+    ),
+    Promise.all(
+      chunk(sessionIds, IN_CHUNK_SIZE).map((batch) =>
+        adminDb.collection('reports').where('sessionId', 'in', batch).get(),
+      ),
+    ),
+  ]);
+
   const snapshots: AnalyticsSnapshotRow[] = [];
-  const profiles: AnalyticsProfileRow[] = [];
   for (const batch of snapshotBatches) {
-    for (const docSnap of batch.docs) {
+    for (const docSnap of batch) {
+      if (!docSnap.exists) continue;
       const data = docSnap.data() ?? {};
-      const studentId = String(data.studentId ?? '');
-      if (data.kind === 'profile') {
-        profiles.push({
-          studentId,
-          score: typeof data.totalScore === 'number' ? data.totalScore : null,
-          band: typeof data.band === 'string' ? data.band : null,
-          trend: typeof data.trend === 'number' ? data.trend : null,
-          suppressed: data.suppressed !== false,
-          coverage: typeof data.coverage === 'number' ? data.coverage : 0,
-        });
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : null;
+      const studentId = sessionId ? sessionOwners.get(sessionId) : null;
+      if (
+        !sessionId ||
+        !studentId ||
+        data.kind !== 'session' ||
+        data.scoringVersion !== SCORING_VERSION ||
+        data.studentId !== studentId
+      ) {
         continue;
       }
+      const metrics = parseStoredSessionMetrics(data.rawMetrics, sessionId);
+      if (!metrics) continue;
       snapshots.push({
         studentId,
-        sessionId: typeof data.sessionId === 'string' ? data.sessionId : null,
+        sessionId,
         totalScore: typeof data.totalScore === 'number' ? data.totalScore : null,
         coverage: typeof data.coverage === 'number' ? data.coverage : 0,
         suppressed: data.suppressed !== false,
         excludedForSystemError: data.excludedForSystemError === true,
         generatedAt: toDate(data.generatedAt),
-        metrics: (data.rawMetrics as Partial<SessionMetrics> | null) ?? null,
-      });
-    }
-  }
-
-  const mastery: AnalyticsMasteryRow[] = [];
-  for (const batch of masteryBatches) {
-    for (const docSnap of batch.docs) {
-      const data = docSnap.data() ?? {};
-      mastery.push({
-        studentId: String(data.studentId ?? ''),
-        subject: typeof data.subject === 'string' ? data.subject : 'unknown',
-        topic: typeof data.topic === 'string' ? data.topic : 'unknown',
-        guidedAccuracy: typeof data.guidedAccuracy === 'number' ? data.guidedAccuracy : 0,
-        independentAccuracy:
-          typeof data.independentAccuracy === 'number' ? data.independentAccuracy : 0,
-        averageHintLevel: typeof data.averageHintLevel === 'number' ? data.averageHintLevel : 0,
-        transferSuccessRate:
-          typeof data.transferSuccessRate === 'number' ? data.transferSuccessRate : 0,
-        sessionCount: typeof data.sessionCount === 'number' ? data.sessionCount : 0,
+        metrics,
       });
     }
   }
@@ -227,9 +278,13 @@ export async function loadEvidenceForStudents(studentIds: string[]): Promise<Loa
   for (const batch of attemptBatches) {
     for (const docSnap of batch.docs) {
       const data = docSnap.data() ?? {};
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : '';
+      const studentId = sessionOwners.get(sessionId);
+      if (!studentId || data.studentId !== studentId) continue;
       const evaluation = (data.evaluation ?? {}) as Record<string, unknown>;
       attempts.push({
-        studentId: String(data.studentId ?? ''),
+        sessionId,
+        studentId,
         errorCategory:
           typeof evaluation.errorCategory === 'string' ? evaluation.errorCategory : null,
         topic: null,
@@ -241,15 +296,19 @@ export async function loadEvidenceForStudents(studentIds: string[]): Promise<Loa
   for (const batch of reportBatches) {
     for (const docSnap of batch.docs) {
       const data = docSnap.data() ?? {};
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : '';
+      const studentId = sessionOwners.get(sessionId);
+      if (!studentId || data.reporterId !== studentId) continue;
       reports.push({
-        studentId: String(data.reporterId ?? ''),
+        sessionId,
+        studentId,
         createdAt: toDate(data.createdAt),
         resolved: data.status === 'resolved',
       });
     }
   }
 
-  return { sessions, snapshots, profiles, mastery, attempts, reports };
+  return { sessions, snapshots, attempts, reports };
 }
 
 /**
@@ -265,6 +324,9 @@ export async function computeClassroomAnalytics(
   now: Date = new Date(),
 ): Promise<ClassroomAnalytics> {
   const members = await loadClassroomMembers(classroomId);
-  const evidence = await loadEvidenceForStudents(members.map((member) => member.studentId));
+  const evidence = await loadEvidenceForClassroom(
+    classroomId,
+    members.map((member) => member.studentId),
+  );
   return aggregateClassroomAnalytics(classroomId, { now, members, ...evidence });
 }
