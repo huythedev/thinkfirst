@@ -70,6 +70,19 @@ the older claim that all local static gates pass stale. The local Playwright com
 attempted without Firebase emulators; it cannot revalidate the emulator-backed E2E record and is
 not used to alter the E2E row below.
 
+**Current-state amendment, 2026-08-13.** The final semantic-disclosure bypass was removed.
+The deterministic validator no longer treats syntax-free tutoring-shaped prose as safe: when it
+cannot extract a deterministic mathematical candidate, it returns `unavailable` and requires the
+semantic judge's high-confidence clearance. Deterministic symbolic leaks still withhold without a
+judge. Regression coverage includes `Try choose four.` and `Thử chọn bốn.`; both reach the judge
+and are withheld when it identifies the word answer. The useful quadratic prompt `Thử xác định a,
+b và c trước nhé.` remains deliverable only after a safe judge verdict. On this revision,
+`npm run typecheck`, `npm run lint`, `npm run test:unit` (**536**), `npm run test:rules`
+(**128**), `npm run test:integration` (**69**), `npm run eval` (**133** cases; policy
+**121/121**, forbidden-mode leakage **0/28**), and `npx next build --webpack` pass. The optional
+emulator-backed E2E command still fails before Playwright starts because of the existing
+workspace/composer `npm` stdin setup error.
+
 Phase 9's headline finding is that **the constraint everyone had accepted was the wrong one**.
 Every session since 07 has recorded the Gemini free tier (20 requests/day, four calls per
 tutoring turn) as the reason live verification was impossible, and each accepted it. But
