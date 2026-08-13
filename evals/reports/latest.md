@@ -1,6 +1,6 @@
 # ThinkFirst evaluation report
 
-- Generated: 2026-08-12T17:25:11.722Z
+- Generated: 2026-08-13T08:47:37.108Z
 - Cases: **133** (section 37 requires at least 100)
 - Driver: **deterministic** -- no live model call was made
 
